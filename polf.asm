@@ -41,6 +41,7 @@ _entry:
 
     lda #0
     sta player_h
+    lda #128
     sta player_x+0
     sta player_y+0
     lda #4
@@ -94,20 +95,21 @@ render:
         sbc #40
         adc rcolumn
         tax
+        ldy #0
         lda sin_table, x
         sta vx+0
-        asl
-        lda #0
-        adc #$ff
-        eor #$ff
-        sta vx+1
+        bpl +
+        dey
++
+        sty vx+1
+
+        ldy #0
         lda cos_table, x
         sta vy+0
-        asl
-        lda #0
-        adc #$ff
-        eor #$ff
-        sta vy+1
+        bpl +
+        dey
++
+        sty vy+1
 
         lda player_x+0
         sta px+0
@@ -136,7 +138,7 @@ render:
 
         lda py+0
         clc
-        adc vy
+        adc vy+0
         sta py+0
         lda py+1
         adc vy+1
@@ -154,20 +156,25 @@ render:
         lda map_table, x
         beq step_loop
 
-        ldx rcolumn
-        lda #25-MAP_SIZE
-        clc
-        adc rsteps
-        tay
-        jsr plot
+        ldx rsteps
+        ldy height_table, x
+        sty rsteps
 
         ldx rcolumn
-        lda #25+MAP_SIZE
+        lda #25
         sec
         sbc rsteps
         tay
         jsr plot
 
+        ldx rcolumn
+        lda #25
+        clc
+        adc rsteps
+        tay
+        jsr plot
+
+    nodraw:
         dec rcolumn
         bpl column_loop
 
@@ -279,11 +286,16 @@ map_table:
     .byte 1, 1, 1, 1, 1, 1, 1, 1
     .byte 1, 0, 0, 1, 1, 0, 0, 1
     .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
+    .byte 1, 0, 0, 1, 0, 0, 0, 1
+    .byte 1, 0, 0, 1, 0, 0, 1, 1
+    .byte 1, 0, 0, 1, 0, 1, 1, 1
+    .byte 1, 0, 0, 1, 0, 1, 1, 1
     .byte 1, 1, 1, 1, 1, 1, 1, 1
+
+height_table:
+    .for i := 1, i <= 16, i += 1
+        .byte 30 / i
+    .next
 
 .align $100
 drawbuffer:
