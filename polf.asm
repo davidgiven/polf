@@ -1,11 +1,18 @@
     .cpu "6502"
 
-PIA1 = $e810
-PIA2 = $e820
-VIA = $e840
-VIA_PB = VIA + 0
+PIA1    = $e810
+PIA1_PA = PIA1 + 0
+PIA1_PB = PIA1 + 2
+
+PIA2    = $e820
+PIA2_PA = PIA2 + 0
+PIA2_PB = PIA2 + 2
+
+VIA     = $e840
+VIA_PB  = VIA + 0
 VIA_PCR = VIA + 12
-CRTC = $e880
+
+CRTC    = $e880
 CRTC_ADDR = CRTC+0
 CRTC_STATUS = CRTC+1
 CRTC_DATA = CRTC+1
@@ -50,7 +57,7 @@ _entry:
 
 -
     jsr cls
-    inc player_h
+    jsr moveplayer
     jsr render
     jsr redraw
     jmp -
@@ -81,6 +88,75 @@ redraw:
     dex
     bne -
     rts
+
+; --- Handle player motion --------------------------------------------------
+
+moveplayer:
+    .block
+        lda #3
+        sta PIA1_PA
+        lda PIA1_PB
+        tax
+        and #%00000001
+        beq a_pressed
+        txa
+        and #%00000010
+        beq d_pressed
+        
+        lda #4
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00000010
+        beq w_pressed
+
+        lda #2
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00000010
+        beq s_pressed
+        rts
+
+     a_pressed:
+        lda player_x+0
+        sec
+        sbc #$40
+        sta player_x+0
+        lda player_x+1
+        sbc #0
+        sta player_x+1
+        rts
+
+     d_pressed:
+        lda player_x+0
+        clc
+        adc #$40
+        sta player_x+0
+        lda player_x+1
+        adc #0
+        sta player_x+1
+        rts
+
+     w_pressed:
+        lda player_y+0
+        sec
+        sbc #$40
+        sta player_y+0
+        lda player_y+1
+        sbc #0
+        sta player_y+1
+        rts
+
+     s_pressed:
+        lda player_y+0
+        clc
+        adc #$40
+        sta player_y+0
+        lda player_y+1
+        adc #0
+        sta player_y+1
+        rts
+
+    .bend
 
 ; --- Main renderer ---------------------------------------------------------
 
@@ -286,10 +362,10 @@ map_table:
     .byte 1, 1, 1, 1, 1, 1, 1, 1
     .byte 1, 0, 0, 1, 1, 0, 0, 1
     .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 1, 0, 0, 0, 1
-    .byte 1, 0, 0, 1, 0, 0, 1, 1
-    .byte 1, 0, 0, 1, 0, 1, 1, 1
-    .byte 1, 0, 0, 1, 0, 1, 1, 1
+    .byte 1, 0, 0, 0, 0, 0, 0, 1
+    .byte 1, 0, 0, 0, 0, 0, 0, 1
+    .byte 1, 0, 0, 0, 0, 0, 0, 1
+    .byte 1, 0, 0, 0, 0, 0, 0, 1
     .byte 1, 1, 1, 1, 1, 1, 1, 1
 
 height_table:
