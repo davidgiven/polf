@@ -160,109 +160,151 @@ moveplayer:
 
 ; --- Main renderer ---------------------------------------------------------
 
+; This is the DDA-based raycaster from
+; https://lodev.org/cgtutor/raycasting.html. I hope.
+
 render:
     .block
         lda #79
         sta rcolumn
 
     column_loop:
-        lda player_h
+        lda player_h        ; calculate ray angle
         sec
         sbc #40
         adc rcolumn
+        sta rdir
         tax
-        ldy #0
-        lda sin_table, x
-        sta vx+0
-        bpl +
-        dey
-+
-        sty vx+1
 
-        ldy #0
-        lda cos_table, x
-        sta vy+0
-        bpl +
-        dey
-+
-        sty vy+1
-
-        lda player_x+0
-        sta px+0
         lda player_x+1
-        sta px+1
-        lda player_y+0
-        sta py+0
+        sta mappos+0
         lda player_y+1
-        sta py+1
+        sta mappos+1
 
+        lda delta_dist_x_table_lo, x ; initialise DDA
+        sta delta_dist_lo+0
+        lda delta_dist_x_table_hi, x
+        sta delta_dist_hi+0
+        lda delta_dist_y_table_lo, x
+        sta delta_dist_lo+1
+        lda delta_dist_y_table_hi, x
+        sta delta_dist_hi+1
+
+        ; Initialise stepx and stepy.
+
+        ldy #1
+        lda cos_table, x
+        bpl +
+        ldy #-1
++       sty step+0
+
+        ldy #1
+        lda sin_table, x
+        bpl +
+        ldy #-1
++       sty step+1
+
+
+        ; Compute the initial distx and disty, from (x - floor(x)) * delta_dist_x.
+
+        lda delta_dist_lo+0
+        sta mulr+0
+        lda delta_dist_hi+0
+        sta mulr+1
         lda #0
-        sta rsteps
+        ldx player_x+0      ; fractional part of player_x
+        jsr mul_16x16
+        sty dist_lo+0
+        sta dist_hi+0
+
+        lda delta_dist_lo+1
+        sta mulr+0
+        lda delta_dist_hi+1
+        sta mulr+1
+        lda #0
+        ldx player_y+0      ; fractional part of player_y
+        jsr mul_16x16
+        sty dist_lo+1
+        sta dist_hi+1
 
     step_loop:
-        inc rsteps
+        ldx #0              ; x is 0 for an X step, 1 for a Y step
+        lda dist_lo+0
+        cmp dist_lo+1
+        lda dist_hi+0
+        sbc dist_hi+1
+        bpl +
+        inx
+    +
 
-        ; Add the player's direction vector to px/py.
-
-        lda px+0
         clc
-        adc vx+0
-        sta px+0
-        lda px+1
-        adc vx+1
-        sta px+1
+        lda dist_lo, x
+        adc delta_dist_lo, x
+        sta dist_lo, x
+        lda dist_hi, x
+        adc delta_dist_hi, x
+        sta dist_hi, x
 
-        lda py+0
         clc
-        adc vy+0
-        sta py+0
-        lda py+1
-        adc vy+1
-        sta py+1
+        lda mappos, x
+        adc step, x
+        sta mappos, x
 
-        ; Have we hit a wall?
-
-        lda py+1
+        lda mappos+1
         asl
         asl
         asl
         clc
-        adc px+1
-        tax
-        lda map_table, x
+        adc mappos+0
+        tay
+        lda map_table, y
         beq step_loop
 
-        ldx rsteps
-        ldy height_table, x
-        sty rsteps
+        ; We've finished the looping; calculate the distance from the camera plane to
+        ; the intersection point.
 
-        ldx rcolumn
-        lda #25
-        sec
-        sbc rsteps
-        tay
-        jsr plot
+        ldx dist_lo+0
+        lda dist_hi+0
+        stx mulr+0
+        sta mulr+1
+        jsr mul_16x16
+        sty dist_lo+0
+        sta dist_hi+0
 
-        ldx rcolumn
-        lda #25
+        ldx dist_lo+1
+        lda dist_hi+1
+        stx mulr+0
+        sta mulr+1
+        jsr mul_16x16
+        sty dist_lo+1
+
         clc
-        adc rsteps
+        adc dist_hi+0
+        lsr
+        lsr
+        lsr
         tay
+        ldx rcolumn
         jsr plot
 
-    nodraw:
         dec rcolumn
-        bpl column_loop
+        bmi +
+        jmp column_loop
++
 
         rts
 
         .section zp
+            rdir:    .byte ?
             rcolumn: .byte ?
             rsteps:  .byte ?
-            vx:      .word ?
-            vy:      .word ?
-            px:      .word ?
-            py:      .word ?
+
+            delta_dist_lo: .word ?
+            delta_dist_hi: .word ?
+            step:          .word ?
+            dist_lo:       .word ?
+            dist_hi:       .word ?
+            mappos:        .word ?
         .send
     .bend
 
@@ -318,6 +360,125 @@ cls:
     bne -
     rts
 
+; --- Maths -----------------------------------------------------------------
+
+; Fast multiplication routines from
+; https://codebase64.org/doku.php?id=base:seriously_fast_multiplication.
+
+; Computes AY = A*X, unsigned; preserves X. Note that the result is 16 bits
+; wide.
+mul_8x8:
+    sta sm1+1
+    sta sm3+1
+    eor #$ff
+    sta sm2+1
+    sta sm4+1
+    ; falls through
+; Computes AX = A * lhs of previous multiply.
+mul_8x8_again:
+    sec
+sm1 lda square1_lo, x
+sm2 sbc square2_lo, x
+    tay
+sm3 lda square1_hi, x
+sm4 sbc square2_hi, x
+    rts
+
+; Computes AY = AX * mulr, unsigned. Note that the result is 16 bits.
+;
+;
+;       L1 L0
+;       R1 R0
+;    --------
+;       A1 A0 = L0 * R0
+;    B2 B1    = L1 * R0
+;    C2 C1    = L0 * R1
+;    --------
+;       R1 R0
+
+mul_16x16:
+    stx mull+0
+    sta mull+1
+
+    ; mull+0 * mulr+0
+
+    lda mulr+0
+    jsr mul_8x8
+    sty mulres+0
+    sta mulres+1
+
+    ; mull+0 * mulr+1
+
+    ldx mulr+1
+    jsr mul_8x8_again
+    tya
+    clc
+    adc mulres+1
+    sta mulres+1
+
+    ; mull+1 * mulr+0
+
+    lda mull+1
+    ldx mulr+0
+    jsr mul_8x8
+    tya
+    clc
+    adc mulres+1
+    ldy mulres+0
+    rts
+
+    .section zp
+        mulr: .word ?
+        mull: .word ?
+        mulres: .word ?
+    .send
+
+; Fast 16-bit square root routine, Y = sqrt(AX).
+; Taken from https://codebase64.org/doku.php?id=base:fast_sqrt.
+
+sqrt_16:
+    .block
+        stx m+0
+        sta m+1
+        ldy #0          ; R = 0
+        ldx #7          ; loop counter
+    loop:
+        tya
+        ora stab-1, x
+        sta t+1         ; calculate (r<<8) | (d<<7)
+        lda m+1
+        cmp t+1
+        bcc +           ; if t <= m
+        sbc t+1
+        sta m+1         ; m = m - t
+        tya
+        ora stab, x
+        tay
+    +
+        asl m+0
+        rol m+1
+        dex
+        bne loop
+
+        sty t+1
+        lda m+0
+        cmp #$80
+        lda m+1
+        sbc t+1
+        bcc +
+        iny
+    +
+        rts
+
+    .section zp
+        t:  .word ?
+        m:  .word ?
+    .send
+
+    stab:
+        .byte $01, $02, $04, $08, $10, $20, $40, $80
+    .bend
+
 block_lookup:
     .byte 32  ; 0 " "
     .byte 126 ; 1 "▘"
@@ -372,6 +533,56 @@ height_table:
     .for i := 1, i <= 16, i += 1
         .byte 30 / i
     .next
+
+; delta_dist precomputation tables, one per angle.
+
+calculate_delta_dist .function i
+    theta := (i / 256.0) * 2*pi
+    .if theta == 0
+        x := 65535
+    .else
+        x := abs(256 / sin(theta))
+    .endif
+    .if x > 65535
+        x := 65535
+    .endif
+.endf x
+
+delta_dist_x_table_lo = delta_dist_y_table_lo + 64
+delta_dist_y_table_lo:
+    .for i := 0, i < 256+64, i += 1
+        .byte <calculate_delta_dist(i)
+    .next
+
+delta_dist_x_table_hi = delta_dist_y_table_hi + 64
+delta_dist_y_table_hi:
+    .for i := 0, i < 256+64, i += 1
+        .byte >calculate_delta_dist(i)
+    .next
+
+; square multiplication tables.
+
+.align $100 ; required or it won't work
+square1_lo:
+    .for i := 0, i < 512, i += 1
+        .byte <((i*i)/4)
+    .next
+
+square1_hi:
+    .for i := 0, i < 512, i += 1
+        .byte >((i*i)/4)
+    .next
+
+square2_lo:
+    .for i := 0, i < 512, i += 1
+        .byte <(((i-255)*(i-255))/4)
+    .next
+
+square2_hi:
+    .for i := 0, i < 512, i += 1
+        .byte <(((i-255)*(i-255))/4)
+    .next
+
 
 .align $100
 drawbuffer:
