@@ -26,6 +26,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 #include <iostream>
 #include <unistd.h>
+#include <algorithm>
 #include "Fixed.h"
 
 #include "quickcg.h"
@@ -78,12 +79,24 @@ int main(int /*argc*/, char */*argv*/[])
   double time = 0; //time of current frame
   double oldTime = 0; //time of previous frame
 
+  auto torad = [](uint8_t bgrad) { return (double)bgrad * (M_PI*2/256); };
+
   int8_t sincos_table[256+64];
   for (int i=0; i<256+64; i++)
-    sincos_table[i] = 127.0*sin((double)i * (M_PI*2/256));
+    sincos_table[i] = 127.0*sin(torad(i));
 
   auto tsin = [&](uint8_t t) { return sincos_table[t] / 128.0; };
   auto tcos = [&](uint8_t t) { return sincos_table[t+0x40] / 128.0; };
+
+  int8_t deltadistx_table[256];
+  int8_t deltadisty_table[256];
+  for (int i=0; i<256; i++)
+  {
+      double deltaDistX = abs(1 / sin(torad(i)));
+      deltadistx_table[i] = std::clamp(deltaDistX, -15.9, 15.9) * 16.0;
+      double deltaDistY = abs(1 / cos(torad(i)));
+      deltadisty_table[i] = std::clamp(deltaDistY, -15.9, 15.9) * 16.0;
+  }
 
   screen(screenWidth, screenHeight, 0, "Raycaster");
   while(!done())
@@ -108,8 +121,8 @@ int main(int /*argc*/, char */*argv*/[])
       number_t sideDistY;
 
        //length of ray from one x or y-side to next x or y-side
-      number_t deltaDistX = (rayDirX != 0) ? abs(1 / rayDirX) : (number_t)1;
-      number_t deltaDistY = (rayDirY != 0) ? abs(1 / rayDirY) : (number_t)1;
+      number_t deltaDistX = deltadistx_table[q] / 16.0;
+      number_t deltaDistY = deltadisty_table[q] / 16.0;
       number_t perpWallDist;
 
       //what direction to step in x or y-direction (either +1 or -1)
