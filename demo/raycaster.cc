@@ -46,8 +46,8 @@ int worldMap[mapWidth][mapHeight]=
 {
   {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
   {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+  {1,0,0,3,0,0,0,0,3,0,0,0,0,0,0,1},
+  {1,0,0,0,0,3,0,0,0,0,0,3,0,0,0,1},
   {1,0,0,0,0,0,2,2,2,2,2,0,0,0,0,1},
   {1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,1},
   {1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,1},
@@ -62,7 +62,7 @@ int worldMap[mapWidth][mapHeight]=
   {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
 };
 
-typedef numeric::Fixed<16,16> number_t;
+typedef numeric::Fixed<8,8> number_t;
 
 number_t abs(number_t n)
 {
@@ -159,7 +159,7 @@ int main(int /*argc*/, char */*argv*/[])
       }
 
       //Calculate height of line to draw on screen
-      int lineHeight = (perpWallDist > 0.01) ? (int)((number_t)h / perpWallDist) : 0;
+      int lineHeight = (perpWallDist > 0.01) ? (int)((number_t)h / perpWallDist) : 1;
 
       //calculate lowest and highest pixel to fill in current stripe
       int drawStart = -lineHeight / 2 + h / 2;
@@ -182,7 +182,10 @@ int main(int /*argc*/, char */*argv*/[])
       if(side == 1) {color = color / 2;}
 
       //draw the pixels of the stripe as a vertical line
-      verLine(x, drawStart, drawEnd, color);
+      if (drawEnd > drawStart)
+      {
+          verLine(x, drawStart, drawEnd, color);
+      }
     }
     //timing for input and FPS counter
     oldTime = time;
