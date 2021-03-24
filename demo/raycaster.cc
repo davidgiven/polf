@@ -25,6 +25,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <string>
 #include <vector>
 #include <iostream>
+#include <unistd.h>
 #include "Fixed.h"
 
 #include "quickcg.h"
@@ -62,7 +63,7 @@ int worldMap[mapWidth][mapHeight]=
   {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
 };
 
-typedef numeric::Fixed<8,8> number_t;
+typedef numeric::Fixed<12,4> number_t;
 
 number_t abs(number_t n)
 {
@@ -72,23 +73,32 @@ number_t abs(number_t n)
 int main(int /*argc*/, char */*argv*/[])
 {
   number_t posX = 8, posY = 12;  //x and y start position
-  number_t dir = 0.0;
+  uint8_t dir = 0;
 
   double time = 0; //time of current frame
   double oldTime = 0; //time of previous frame
 
+  int8_t sincos_table[256+64];
+  for (int i=0; i<256+64; i++)
+    sincos_table[i] = 127.0*sin((double)i * (M_PI*2/256));
+
+  auto tsin = [&](uint8_t t) { return sincos_table[t] / 128.0; };
+  auto tcos = [&](uint8_t t) { return sincos_table[t+0x40] / 128.0; };
+
   screen(screenWidth, screenHeight, 0, "Raycaster");
   while(!done())
   {
-    number_t dirX = sin(dir);
-    number_t dirY = cos(dir);
+    usleep(10*1000);
+
+    number_t dirX = tsin(dir);
+    number_t dirY = tcos(dir);
 
     for(int x = 0; x < w; x++)
     {
       //calculate ray position and direction
-      number_t q = (((number_t)x/w) - 0.5) * (M_PI/4);
-      number_t rayDirX = sin(dir + q);
-      number_t rayDirY = cos(dir + q);
+      uint8_t q = dir - 40 + x;
+      number_t rayDirX = tsin(q);
+      number_t rayDirY = tcos(q);
       //which box of the map we're in
       int mapX = int(posX);
       int mapY = int(posY);
@@ -191,13 +201,14 @@ int main(int /*argc*/, char */*argv*/[])
     oldTime = time;
     time = getTicks();
     number_t frameTime = (time - oldTime) / 1000.0; //frameTime is the time this frame has taken, in seconds
-    print(1.0 / frameTime); //FPS counter
     redraw();
     cls();
 
     //speed modifiers
     number_t moveSpeed = frameTime * 5.0; //the constant value is in squares/second
     number_t rotSpeed = frameTime * 3.0; //the constant value is in radians/second
+    moveSpeed = 0.2;
+    rotSpeed = 1.0;
     readKeys();
     //move forward if no wall in front of you
     if(keyDown(SDLK_UP))
@@ -214,12 +225,12 @@ int main(int /*argc*/, char */*argv*/[])
     //rotate to the right
     if(keyDown(SDLK_RIGHT))
     {
-      dir += rotSpeed;
+      dir++;
     }
     //rotate to the left
     if(keyDown(SDLK_LEFT))
     {
-      dir -= rotSpeed;
+      dir--;
     }
   }
 }
