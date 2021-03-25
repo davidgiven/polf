@@ -83,19 +83,11 @@ int main(int /*argc*/, char */*argv*/[])
 
   int8_t sincos_table[256+64];
   for (int i=0; i<256+64; i++)
-  {
     sincos_table[i] = 127.0*sin(torad(i));
-	printf("%02x ", sincos_table[i] & 0xff);
-  }
-  printf("\n\n");
 
   int8_t inv_sincos_table[256*64];
   for (int i=0; i<256+64; i++)
-  {
     inv_sincos_table[i] = 16.0 * std::clamp(1.0 / sin(torad(i)), -7.9, 7.9);
-	printf("%02x ", inv_sincos_table[i] & 0xff);
-  }
-  printf("\n\n");
 
   auto tsin = [&](uint8_t t) { return sincos_table[t] / 128.0; };
   auto tcos = [&](uint8_t t) { return sincos_table[t+0x40] / 128.0; };
@@ -111,9 +103,6 @@ int main(int /*argc*/, char */*argv*/[])
       double deltaDistY = abs(1 / cos(torad(i)));
       deltadisty_table[i] = std::clamp(deltaDistY, -7.9, 7.9) * 16.0;
   }
-  for (int i=0; i<256; i++)
-  	printf("%02x ", deltadistx_table[i]);
-  printf("\n\n");
 
   screen(screenWidth, screenHeight, 0, "Raycaster");
   while(!done())
@@ -123,7 +112,7 @@ int main(int /*argc*/, char */*argv*/[])
     number_t dirX = tsin(dir);
     number_t dirY = tcos(dir);
 
-    for(int x = 0; x < w; x++)
+    for(int x = w-1; x >= 0; x--)
     {
       //calculate ray position and direction
       uint8_t q = dir - 20 + x/2;
@@ -157,7 +146,7 @@ int main(int /*argc*/, char */*argv*/[])
       else
       {
         stepX = 1;
-        sideDistX = (mapX + 1.0 - posX) * deltaDistX;
+        sideDistX = (1.0 - (posX - mapX)) * deltaDistX;
       }
       if(rayDirY < 0)
       {
@@ -167,10 +156,10 @@ int main(int /*argc*/, char */*argv*/[])
       else
       {
         stepY = 1;
-        sideDistY = ((number_t)mapY + 1.0 - posY) * deltaDistY;
+        sideDistY = (1.0 - (posY - mapY)) * deltaDistY;
       }
       //perform DDA
-
+	  
       while (hit == 0)
       {
         //jump to next map square, OR in x-direction, OR in y-direction
@@ -193,9 +182,9 @@ int main(int /*argc*/, char */*argv*/[])
       }
       //Calculate distance projected on camera direction (Euclidean distance will give fisheye effect!)
 	  if (side == 0)
-          perpWallDist = (mapX - posX + (1 - stepX) / 2) * tinvsin(q);
+          perpWallDist = ((1 - stepX)/2 - (posX - mapX)) * tinvsin(q);
 	  else
-          perpWallDist = (mapY - posY + (1 - stepY) / 2) * tinvcos(q);
+          perpWallDist = ((1 - stepY)/2 - (posY - mapY)) * tinvcos(q);
 
       //Calculate height of line to draw on screen
       int lineHeight = (perpWallDist > 0.01) ? (int)((number_t)h / perpWallDist) : 1;

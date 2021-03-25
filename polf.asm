@@ -21,8 +21,8 @@ SCREEN = $8000
 MAP_SIZE = 8
 
 .section zp
-    player_x:   .word ?
-    player_y:   .word ?
+    player_x:   .byte ?
+    player_y:   .byte ?
     player_h:   .byte ?
 .send
 
@@ -48,12 +48,10 @@ _entry:
 
     lda #0
     sta player_h
-    lda #128
-    sta player_x+0
-    sta player_y+0
-    lda #4
-    sta player_x+1
-    sta player_y+1
+    lda #8*16
+    sta player_x
+    lda #12*16
+    sta player_y
 
 -
     jsr cls
@@ -69,9 +67,9 @@ _entry:
 redraw:
     .block
     ; Wait for a vsync.
-    lda VIA_PB
-    and #%00100000
-    bne redraw
+    ;lda VIA_PB
+    ;and #%00100000
+    ;bne redraw
 
     copy .macro
         lda backbuffer+\1, x
@@ -153,39 +151,202 @@ vline:
 
 render:
     .block
-        lda #32+128
-        ldx #1
-        ldy #1
+        lda #40
+        sta column
+    column_loop:
+        dec column
+
+        ; Calculate ray direction.
+
+        lda column
+        sec
+        sbc #20
+        clc
+        adc player_h
+        sta raydir
+
+        ; Calculate map location.
+
+        lda player_x
+        and #$f0                ; truncate
+        sta mx
+
+        lda player_y
+        and #$f0                ; truncate
+        sta my
+
+        ; Initialise DDA.
+
+        ldx raydir
+        lda deltadistx_table, x
+        sta deltadistx
+        lda deltadisty_table, x
+        sta deltadisty
+
+        ; sidedistx
+
+        .block
+            ldx raydir
+            lda dirx_table, x
+            bpl do_pos_x
+
+        do_neg_x:
+            lda player_x
+            and #$0f            ; fractional part only
+            tax
+            lda deltadistx
+            jsr mul_8x8_8f
+            sta sidedistx
+
+            lda #-$10
+            jmp exit
+
+        do_pos_x:
+            lda player_x
+            and #$0f            ; fractional part only
+            tax
+            sec
+            lda #$10            ; 1.0
+            sbc identity_table, x
+            tax
+            lda deltadistx
+            jsr mul_8x8_8f
+            sta sidedistx
+
+            lda #$10
+        exit:
+            sta stepx
+        .bend
+
+        ; sidedisty
+
+        .block
+            ldx raydir
+            lda diry_table, x
+            bpl do_pos_y
+
+        do_neg_y:
+            lda player_y
+            and #$0f            ; fractional part only
+            tax
+            lda deltadisty
+            jsr mul_8x8_8f
+            sta sidedisty
+
+            lda #-$10
+            jmp exit
+
+        do_pos_y:
+            lda player_y
+            and #$0f            ; fractional part only
+            tax
+            sec
+            lda #$10            ; 1.0
+            sbc identity_table, x
+            tax
+            lda deltadisty
+            jsr mul_8x8_8f
+            sta sidedisty
+
+            lda #$10
+        exit:
+            sta stepy
+        .bend
+
+        ; Now actually do the DDA.
+
+        .block
+        loop:
+            ; set side; 0 for x, 1 for y
+
+            lda sidedistx
+            cmp sidedisty
+            lda #0
+            rol
+            tax
+
+            ; do one DDA step
+
+            clc
+            lda sidedistx, x
+            adc deltadistx, x
+            sta sidedistx, x
+            clc
+            lda mx, x
+            adc stepx, x
+            sta mx, x
+
+            ; check the map
+
+            lda mx
+            lsr
+            lsr
+            lsr
+            lsr
+            ora my
+            tay
+            lda map_table, y
+            beq loop
+        .bend
+
+        ; Compute the intersection distance.
+
+        .block
+            sec
+            lda player_x, x
+            sbc mx, x               ; pos - map
+            tay
+
+            sec
+            lda #$10                ; 1.0
+            sbc mx, x               ; 1-step
+            lsr
+            
+            sec
+            sbc identity_table, y
+            tay
+
+            txa                     ; set flags
+            sta side
+            beq +
+
+            clc
+            lda raydir
+            adc #$40
+            jmp do_multiply
+        +
+            lda raydir
+        do_multiply:
+            tax
+            tya
+            jsr mul_8x8_16
+        .bend
+
+        tax
+        ldy height_table, x
+        lda side
+        ldx column
         jsr vline
-        lda #32+128
-        ldx #2
-        ldy #2
-        jsr vline
-        lda #32+128
-        ldx #3
-        ldy #3
-        jsr vline
-        lda #$66
-        ldx #4
-        ldy #4
-        jsr vline
-        lda #$66
-        ldx #5
-        ldy #5
-        jsr vline
-        lda #$66
-        ldx #6
-        ldy #6
-        jsr vline
-        lda #$66
-        ldx #7
-        ldy #7
-        jsr vline
-        lda #$66
-        ldx #8
-        ldy #8
-        jsr vline
+
+        lda column
+        beq exit
+        jmp column_loop
+    exit:
         rts
+
+        .section zp
+            column: .byte ?
+            raydir: .byte ?
+            mx:     .byte ?
+            my:     .byte ? ; scaled <<4
+            deltadistx: .byte ?
+            deltadisty: .byte ?
+            sidedistx:  .byte ?
+            sidedisty:  .byte ?
+            stepx:  .byte ?
+            stepy:  .byte ?
+            side:   .byte ?
+        .send
     .bend
 
 ; --- Handle player motion --------------------------------------------------
@@ -213,48 +374,66 @@ moveplayer:
         lda PIA1_PB
         and #%00000010
         beq s_pressed
+
+        lda #7
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00001000
+        beq comma_pressed
+
+        lda #6
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00001000
+        beq dot_pressed
+
         rts
 
-     a_pressed:
-        lda player_x+0
+    w_pressed:
+        lda player_h
+        jmp move
+
+    a_pressed:
+        lda player_h
         sec
         sbc #$40
-        sta player_x+0
-        lda player_x+1
-        sbc #0
-        sta player_x+1
-        rts
+        jmp move
 
-     d_pressed:
-        lda player_x+0
+    d_pressed:
+        lda player_h
         clc
         adc #$40
-        sta player_x+0
-        lda player_x+1
-        adc #0
-        sta player_x+1
-        rts
+        jmp move
 
-     w_pressed:
-        lda player_y+0
-        sec
-        sbc #$40
-        sta player_y+0
-        lda player_y+1
-        sbc #0
-        sta player_y+1
-        rts
-
-     s_pressed:
-        lda player_y+0
+    s_pressed:
+        lda player_h
         clc
-        adc #$40
-        sta player_y+0
-        lda player_y+1
-        adc #0
-        sta player_y+1
+        adc #$80
+        jmp move
+
+    dot_pressed:
+        inc player_h
         rts
 
+    comma_pressed:
+        dec player_h
+        rts
+
+    move:
+        tax
+        clc
+        lda dirx_table, x
+        cmp #$80
+        ror
+        adc player_x
+        sta player_x
+        clc
+        lda diry_table, x
+        cmp #$80
+        ror
+        adc player_y
+        sta player_y
+        rts
     .bend
 
 ; --- Maths -----------------------------------------------------------------
@@ -264,7 +443,7 @@ moveplayer:
 
 ; Computes AY = A*X, unsigned; preserves X. Note that the result is 16 bits
 ; wide.
-mul_8x8:
+mul_8x8_16:
     sta sm1+1
     sta sm3+1
     eor #$ff
@@ -280,6 +459,26 @@ sm2 sbc square2_lo, x
 sm3 lda square1_hi, x
 sm4 sbc square2_hi, x
     rts
+
+; Computes A = A*X, where all numbers are (optionally signed) fixeds.
+mul_8x8_8f:
+    .block
+        jsr mul_8x8_16
+        sty rhs
+        asl rhs
+        rol
+        asl rhs
+        rol
+        asl rhs
+        rol
+        asl rhs
+        rol
+        rts
+
+        .section zp
+            rhs: .byte ?
+        .send
+    .bend
 
 map_table:
   .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
@@ -331,7 +530,7 @@ square2_lo:
 
 square2_hi:
     .for i := 0, i < 512, i += 1
-        .byte <(((i-255)*(i-255))/4)
+        .byte >(((i-255)*(i-255))/4)
     .next
 
 identity_table:
@@ -359,11 +558,24 @@ div .function x, y
     .endif
     .endf n
 
+height_table:
+    .for i := 0, i < 256, i += 1
+        f := i / 16.0
+        .if f == 0
+            .byte 10
+        .else
+            .byte 10.0 * 1/f
+        .endif
+    .next
+
 sin_table:
 cos_table = sin_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char 127.0 * sin(torad(i))
+        .char 15.9 * sin(torad(i))
     .next
+
+dirx_table = sin_table
+diry_table = cos_table
 
 inv_sincos_table:
     .for i := 0, i < 256+64, i += 1
