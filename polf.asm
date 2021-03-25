@@ -282,14 +282,22 @@ sm4 sbc square2_hi, x
     rts
 
 map_table:
-    .byte 1, 1, 1, 1, 1, 1, 1, 1
-    .byte 1, 0, 0, 1, 1, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 0, 0, 0, 0, 0, 0, 1
-    .byte 1, 1, 1, 1, 1, 1, 1, 1
+  .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+  .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+  .byte 1,0,1,3,0,0,0,0,3,0,0,0,0,0,0,1
+  .byte 1,0,1,0,0,3,0,0,0,0,0,3,0,0,0,1
+  .byte 1,0,1,0,0,0,1,1,1,1,1,0,0,0,0,1
+  .byte 1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1
+  .byte 1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1
+  .byte 1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1
+  .byte 1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,1
+  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
+  .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+  .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
 
 ; backbuffer row addresses.
 
@@ -329,6 +337,43 @@ square2_hi:
 identity_table:
     .for i := 0, i < 256, i += 1
         .byte i
+    .next
+
+torad .function i
+    .endf i * (PI * 2 / 256)
+
+clamp .function n, lo, hi
+    .if n < lo
+        n := lo
+    .endif
+    .if n > hi
+        n := hi
+    .endif
+    .endf n
+
+div .function x, y
+    .if y == 0
+        n := 9999
+    .else
+        n := x / y
+    .endif
+    .endf n
+
+sin_table:
+cos_table = sin_table + 64
+    .for i := 0, i < 256+64, i += 1
+        .char 127.0 * sin(torad(i))
+    .next
+
+inv_sincos_table:
+    .for i := 0, i < 256+64, i += 1
+        .char 16.0 * clamp(div(1.0, sin(torad(i))), -7.9, 7.9)
+    .next
+
+deltadistx_table:
+deltadisty_table = deltadistx_table + 64
+    .for i := 0, i < 256+64, i += 1
+        .char 16.0 * clamp(abs(div(1, sin(torad(i)))), -7.9, 7.9)
     .next
 
 .align $100

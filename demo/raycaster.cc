@@ -83,11 +83,19 @@ int main(int /*argc*/, char */*argv*/[])
 
   int8_t sincos_table[256+64];
   for (int i=0; i<256+64; i++)
+  {
     sincos_table[i] = 127.0*sin(torad(i));
+	printf("%02x ", sincos_table[i] & 0xff);
+  }
+  printf("\n\n");
 
   int8_t inv_sincos_table[256*64];
   for (int i=0; i<256+64; i++)
+  {
     inv_sincos_table[i] = 16.0 * std::clamp(1.0 / sin(torad(i)), -7.9, 7.9);
+	printf("%02x ", inv_sincos_table[i] & 0xff);
+  }
+  printf("\n\n");
 
   auto tsin = [&](uint8_t t) { return sincos_table[t] / 128.0; };
   auto tcos = [&](uint8_t t) { return sincos_table[t+0x40] / 128.0; };
@@ -103,6 +111,9 @@ int main(int /*argc*/, char */*argv*/[])
       double deltaDistY = abs(1 / cos(torad(i)));
       deltadisty_table[i] = std::clamp(deltaDistY, -7.9, 7.9) * 16.0;
   }
+  for (int i=0; i<256; i++)
+  	printf("%02x ", deltadistx_table[i]);
+  printf("\n\n");
 
   screen(screenWidth, screenHeight, 0, "Raycaster");
   while(!done())
