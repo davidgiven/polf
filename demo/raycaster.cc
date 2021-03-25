@@ -93,9 +93,9 @@ int main(int /*argc*/, char */*argv*/[])
   for (int i=0; i<256; i++)
   {
       double deltaDistX = abs(1 / sin(torad(i)));
-      deltadistx_table[i] = std::clamp(deltaDistX, -15.9, 15.9) * 16.0;
+      deltadistx_table[i] = std::clamp(deltaDistX, -7.9, 7.9) * 16.0;
       double deltaDistY = abs(1 / cos(torad(i)));
-      deltadisty_table[i] = std::clamp(deltaDistY, -15.9, 15.9) * 16.0;
+      deltadisty_table[i] = std::clamp(deltaDistY, -7.9, 7.9) * 16.0;
   }
 
   screen(screenWidth, screenHeight, 0, "Raycaster");
@@ -150,9 +150,11 @@ int main(int /*argc*/, char */*argv*/[])
       else
       {
         stepY = 1;
-        sideDistY = (mapY + 1.0 - posY) * deltaDistY;
+        sideDistY = ((number_t)mapY + 1.0 - posY) * deltaDistY;
       }
       //perform DDA
+
+	  printf("%d ", q);
       while (hit == 0)
       {
         //jump to next map square, OR in x-direction, OR in y-direction
@@ -162,24 +164,22 @@ int main(int /*argc*/, char */*argv*/[])
           mapX += stepX;
           side = 0;
         }
-        else
+		else
         {
           sideDistY += deltaDistY;
           mapY += stepY;
           side = 1;
         }
+
         //Check if ray has hit a wall
-        if(worldMap[mapX][mapY] > 0) hit = 1;
+        if (worldMap[mapX][mapY])
+			hit = 1;
       }
       //Calculate distance projected on camera direction (Euclidean distance will give fisheye effect!)
-      if(side == 0)
-      {
-          perpWallDist = (rayDirX == 0) ? (number_t)100 : ((mapX - posX + (1 - stepX) / 2) / rayDirX);
-      }
-      else
-     {
-          perpWallDist = (rayDirY == 0) ? (number_t)100 : ((mapY - posY + (1 - stepY) / 2) / rayDirY);
-      }
+	  if (side == 0)
+          perpWallDist = (mapX - posX + (1 - stepX) / 2) / rayDirX;
+	  else
+          perpWallDist = (mapY - posY + (1 - stepY) / 2) / rayDirY;
 
       //Calculate height of line to draw on screen
       int lineHeight = (perpWallDist > 0.01) ? (int)((number_t)h / perpWallDist) : 1;
