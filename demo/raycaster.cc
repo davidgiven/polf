@@ -48,18 +48,18 @@ int worldMap[mapWidth][mapHeight]=
 {
   {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
   {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,3,0,0,0,0,3,0,0,0,0,0,0,1},
-  {1,0,0,0,0,3,0,0,0,0,0,3,0,0,0,1},
-  {1,0,0,0,0,0,2,2,2,2,2,0,0,0,0,1},
-  {1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,1},
-  {1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,1},
-  {1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,1},
-  {1,0,0,0,0,0,2,2,0,2,2,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+  {1,0,1,3,0,0,0,0,3,0,0,0,0,0,0,1},
+  {1,0,1,0,0,3,0,0,0,0,0,3,0,0,0,1},
+  {1,0,1,0,0,0,2,2,2,2,2,0,0,0,0,1},
+  {1,0,1,0,0,0,2,0,0,0,2,0,0,0,0,1},
+  {1,0,1,0,0,0,2,0,0,0,2,0,0,0,0,1},
+  {1,0,1,0,0,0,2,0,0,0,2,0,0,0,0,1},
+  {1,0,1,0,0,0,2,2,0,2,2,0,0,0,0,1},
+  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
+  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
+  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
+  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
+  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
   {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
   {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
 };
@@ -85,8 +85,14 @@ int main(int /*argc*/, char */*argv*/[])
   for (int i=0; i<256+64; i++)
     sincos_table[i] = 127.0*sin(torad(i));
 
+  int8_t inv_sincos_table[256*64];
+  for (int i=0; i<256+64; i++)
+    inv_sincos_table[i] = 16.0 * std::clamp(1.0 / sin(torad(i)), -7.9, 7.9);
+
   auto tsin = [&](uint8_t t) { return sincos_table[t] / 128.0; };
   auto tcos = [&](uint8_t t) { return sincos_table[t+0x40] / 128.0; };
+  auto tinvsin = [&](uint8_t t) { return inv_sincos_table[t] / 16.0; };
+  auto tinvcos = [&](uint8_t t) { return inv_sincos_table[t+0x40] / 16.0; };
 
   int8_t deltadistx_table[256];
   int8_t deltadisty_table[256];
@@ -109,7 +115,7 @@ int main(int /*argc*/, char */*argv*/[])
     for(int x = 0; x < w; x++)
     {
       //calculate ray position and direction
-      uint8_t q = dir - 40 + x;
+      uint8_t q = dir - 20 + x/2;
       number_t rayDirX = tsin(q);
       number_t rayDirY = tcos(q);
       //which box of the map we're in
@@ -154,7 +160,6 @@ int main(int /*argc*/, char */*argv*/[])
       }
       //perform DDA
 
-	  printf("%d ", q);
       while (hit == 0)
       {
         //jump to next map square, OR in x-direction, OR in y-direction
@@ -177,9 +182,9 @@ int main(int /*argc*/, char */*argv*/[])
       }
       //Calculate distance projected on camera direction (Euclidean distance will give fisheye effect!)
 	  if (side == 0)
-          perpWallDist = (mapX - posX + (1 - stepX) / 2) / rayDirX;
+          perpWallDist = (mapX - posX + (1 - stepX) / 2) * tinvsin(q);
 	  else
-          perpWallDist = (mapY - posY + (1 - stepY) / 2) / rayDirY;
+          perpWallDist = (mapY - posY + (1 - stepY) / 2) * tinvcos(q);
 
       //Calculate height of line to draw on screen
       int lineHeight = (perpWallDist > 0.01) ? (int)((number_t)h / perpWallDist) : 1;
