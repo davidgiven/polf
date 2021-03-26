@@ -57,19 +57,64 @@ _entry:
     jsr cls
     jsr moveplayer
     jsr render
+    jsr draw_status
     jsr redraw
     jmp -
 
 ; --- Screen draw -----------------------------------------------------------
 
+; Draw stuff on the top line.
+
+draw_status:
+    .block
+        lda #<backbuffer
+        sta ptr+0
+        lda #>backbuffer
+        sta ptr+1
+
+        ldy #0
+        lda player_h
+        jsr drawbyte
+
+        iny
+        lda player_x
+        jsr drawbyte
+
+        iny
+        lda player_y
+        jsr drawbyte
+        rts
+
+    drawbyte:
+        pha
+        lsr
+        lsr
+        lsr
+        lsr
+        jsr drawnibble
+        pla
+        ; fall through
+    drawnibble:
+        and #$0f
+        tax
+        lda hex_table, x
+        sta (ptr), y
+        iny
+        rts
+
+        .section zp
+            ptr: .word ?
+        .send
+    .bend
 ; The backbuffer is copied onto the screen.
 
 redraw:
     .block
     ; Wait for a vsync.
-    ;lda VIA_PB
-    ;and #%00100000
-    ;bne redraw
+
+        lda VIA_PB
+        and #%00100000
+        bne redraw
 
     copy .macro
         lda backbuffer+\1, x
@@ -103,7 +148,14 @@ cls:
 vline:
     .block
         sta char
-        sty height
+
+        tya
+        cmp #20
+        bcc +
+        lda #20
+    +
+        sta height
+
         sec
         lda #24
         sbc height
@@ -159,6 +211,9 @@ render:
         ; Calculate ray direction.
 
         lda column
+        bpl +
+        rts                     ; break out of loop if no more columns
+   +
         sec
         sbc #20
         clc
@@ -300,10 +355,10 @@ render:
             sec
             lda #$10                ; 1.0
             sbc mx, x               ; 1-step
-            lsr
+            lsr                     ; /2
             
             sec
-            sbc identity_table, y
+            sbc identity_table, y   ; (1-step)/2 - (pos-map)
             tay
 
             txa                     ; set flags
@@ -318,35 +373,39 @@ render:
             lda raydir
         do_multiply:
             tax
+            lda inv_sincos_table, x
+            tax
             tya
             jsr mul_8x8_16
         .bend
 
-        tax
+        tay
         ldy height_table, x
-        lda side
+        ldx side
+        lda textures_table, x
+        tax
         ldx column
         jsr vline
 
-        lda column
-        beq exit
         jmp column_loop
-    exit:
-        rts
 
         .section zp
-            column: .byte ?
-            raydir: .byte ?
-            mx:     .byte ?
-            my:     .byte ? ; scaled <<4
+            column:     .byte ?
+            raydir:     .byte ?
+            mx:         .byte ?
+            my:         .byte ?
             deltadistx: .byte ?
             deltadisty: .byte ?
             sidedistx:  .byte ?
             sidedisty:  .byte ?
-            stepx:  .byte ?
-            stepy:  .byte ?
-            side:   .byte ?
+            stepx:      .byte ?
+            stepy:      .byte ?
+            side:       .byte ?
         .send
+
+        textures_table:
+            .byte 32+128    ; solid block
+            .byte 102       ; half fill
     .bend
 
 ; --- Handle player motion --------------------------------------------------
@@ -413,9 +472,11 @@ moveplayer:
 
     dot_pressed:
         inc player_h
+        inc player_h
         rts
 
     comma_pressed:
+        dec player_h
         dec player_h
         rts
 
@@ -425,10 +486,14 @@ moveplayer:
         lda dirx_table, x
         cmp #$80
         ror
+        cmp #$80
+        ror
         adc player_x
         sta player_x
         clc
         lda diry_table, x
+        cmp #$80
+        ror
         cmp #$80
         ror
         adc player_y
@@ -481,22 +546,25 @@ mul_8x8_8f:
     .bend
 
 map_table:
-  .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
-  .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-  .byte 1,0,1,3,0,0,0,0,3,0,0,0,0,0,0,1
-  .byte 1,0,1,0,0,3,0,0,0,0,0,3,0,0,0,1
-  .byte 1,0,1,0,0,0,1,1,1,1,1,0,0,0,0,1
-  .byte 1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1
-  .byte 1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1
-  .byte 1,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1
-  .byte 1,0,1,0,0,0,1,1,0,1,1,0,0,0,0,1
-  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
-  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
-  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
-  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
-  .byte 1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1
-  .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-  .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+    .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+
+hex_table:
+    .text "0123456789ABCDEF"
 
 ; backbuffer row addresses.
 
@@ -564,7 +632,7 @@ height_table:
         .if f == 0
             .byte 10
         .else
-            .byte 10.0 * 1/f
+            .byte 10.0 * 1.0/f
         .endif
     .next
 
