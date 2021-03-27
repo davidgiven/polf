@@ -46,7 +46,7 @@ _entry:
 
     ; Initialise.
 
-    lda #0
+    lda #$86
     sta player_h
     lda #8*16
     sta player_x
@@ -354,7 +354,7 @@ render:
 
             sec
             lda #$10                ; 1.0
-            sbc mx, x               ; 1-step
+            sbc stepx, x            ; 1-step
             lsr                     ; /2
             
             sec
@@ -376,10 +376,10 @@ render:
             lda inv_sincos_table, x
             tax
             tya
-            jsr mul_8x8_16
+            jsr mul_8x8_8fs         ; signed multiply
         .bend
 
-        tay
+        tax
         ldy height_table, x
         ldx side
         lda textures_table, x
@@ -525,23 +525,67 @@ sm3 lda square1_hi, x
 sm4 sbc square2_hi, x
     rts
 
-; Computes A = A*X, where all numbers are (optionally signed) fixeds.
+; Computes A = A*X unsigned, where all numbers are (optionally signed) fixeds.
 mul_8x8_8f:
     .block
         jsr mul_8x8_16
-        sty rhs
-        asl rhs
+        sty lo
+        asl lo
         rol
-        asl rhs
+        asl lo
         rol
-        asl rhs
+        asl lo
         rol
-        asl rhs
+        asl lo
         rol
         rts
 
         .section zp
+            lo: .byte ?
+        .send
+    .bend
+
+; Computes A = A*X signed, where all numbers are (optionally signed) fixeds.
+mul_8x8_8fs:
+    .block
+        sta lhs
+        stx rhs
+        jsr mul_8x8_16
+        sta hi
+        sty lo
+
+        bit lhs
+        bpl +
+        sec
+        lda hi
+        sbc rhs
+        sta hi
+    +
+
+        bit rhs
+        bpl +
+        sec
+        lda hi
+        sbc lhs
+        sta hi
+    +
+
+        ; hi already in A
+        asl lo
+        rol
+        asl lo
+        rol
+        asl lo
+        rol
+        asl lo
+        rol
+        rts
+
+        .section zp
+            lhs: .byte ?
             rhs: .byte ?
+            lo: .byte ?
+            hi: .byte ?
         .send
     .bend
 
@@ -551,16 +595,16 @@ map_table:
     .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
     .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
     .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,1,1,0,1,1
+    .byte 1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1
+    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
     .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
 
 hex_table:
@@ -629,11 +673,14 @@ div .function x, y
 height_table:
     .for i := 0, i < 256, i += 1
         f := i / 16.0
-        .if f == 0
-            .byte 10
-        .else
-            .byte 10.0 * 1.0/f
+        h := $ff
+        .if i != 0
+            h := 10.0 * 1.0/f
         .endif
+        .if h < 1
+            h := 1
+        .endif
+        .byte h
     .next
 
 sin_table:
@@ -646,7 +693,7 @@ dirx_table = sin_table
 diry_table = cos_table
 
 inv_sincos_table:
-    .for i := 0, i < 256+64, i += 1
+    .for i := 0, i < 256, i += 1
         .char 16.0 * clamp(div(1.0, sin(torad(i))), -7.9, 7.9)
     .next
 
