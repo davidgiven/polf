@@ -20,10 +20,15 @@ CRTC_DATA = CRTC+1
 SCREEN = $8000
 MAP_SIZE = 8
 
+ACCELERATION = $08
+
 .section zp
     player_x:   .byte ?
     player_y:   .byte ?
     player_h:   .byte ?
+    player_vx:  .byte ?
+    player_vy:  .byte ?
+    player_vh:  .byte ?
 .send
 
 ; --- Header ----------------------------------------------------------------
@@ -52,6 +57,10 @@ _entry:
     sta player_x
     lda #12*16
     sta player_y
+    lda #0
+    sta player_vx
+    sta player_vy
+    sta player_vh
 
 -
     jsr cls
@@ -83,6 +92,19 @@ draw_status:
         iny
         lda player_y
         jsr drawbyte
+
+        iny
+        lda player_vx
+        jsr drawbyte
+
+        iny
+        lda player_vy
+        jsr drawbyte
+
+        iny
+        lda player_vh
+        jsr drawbyte
+
         rts
 
     drawbyte:
@@ -412,6 +434,58 @@ render:
 
 moveplayer:
     .block
+        ; Move player according to current velocity.
+
+        clc
+        lda player_x
+        adc player_vx
+        sta player_x
+
+        clc
+        lda player_y
+        adc player_vy
+        sta player_y
+
+        ; Velocity decays each tick.
+
+        lda player_vx
+        cmp #$ff
+        bne +
+        lda #0
+    +
+        cmp #$80
+        ror
+        sta player_vx
+
+        lda player_vy
+        cmp #$ff
+        bne +
+        lda #0
+    +
+        cmp #$80
+        ror
+        sta player_vy
+
+        ; Apply rotational velocity.
+
+        clc
+        lda player_h
+        adc player_vh
+        sta player_h
+
+        ; Rotational velocity decays too.
+
+        lda player_vh
+        cmp #$ff
+        bne +
+        lda #0
+    +
+        cmp #$80
+        ror
+        sta player_vh
+
+        ; Process keys.
+
         lda #3
         sta PIA1_PA
         lda PIA1_PB
@@ -450,54 +524,62 @@ moveplayer:
 
     w_pressed:
         lda player_h
-        jmp move
-
-    a_pressed:
-        lda player_h
-        sec
-        sbc #$40
-        jmp move
-
-    d_pressed:
-        lda player_h
-        clc
-        adc #$40
-        jmp move
+        jmp accelerate
 
     s_pressed:
         lda player_h
         clc
         adc #$80
-        jmp move
+        jmp accelerate
+
+    a_pressed:
+        lda player_h
+        sec
+        sbc #$40
+        jmp accelerate
+
+    d_pressed:
+        lda player_h
+        clc
+        adc #$40
+        jmp accelerate
 
     dot_pressed:
-        inc player_h
-        inc player_h
+        clc
+        lda player_vh
+        adc #$03
+        sta player_vh
         rts
 
     comma_pressed:
-        dec player_h
-        dec player_h
+        sec
+        lda player_vh
+        sbc #$03
+        sta player_vh
         rts
 
-    move:
+    accelerate:
         tax
-        clc
+
         lda dirx_table, x
         cmp #$80
         ror
         cmp #$80
         ror
-        adc player_x
-        sta player_x
-        clc
+        cmp #$80
+        ror
+        adc player_vx
+        sta player_vx
+
         lda diry_table, x
         cmp #$80
         ror
         cmp #$80
         ror
-        adc player_y
-        sta player_y
+        cmp #$80
+        ror
+        adc player_vy
+        sta player_vy
         rts
     .bend
 
