@@ -484,13 +484,23 @@ moveplayer:
 
         clc
         lda player_x
+        tay
         adc player_vx
         sta player_x
+        jsr testhit
+        beq +
+        sty player_x
+    +
 
         clc
         lda player_y
+        tay
         adc player_vy
         sta player_y
+        jsr testhit
+        beq +
+        sty player_y
+    +
 
         ; Velocity decays each tick.
 
@@ -627,6 +637,27 @@ moveplayer:
         adc player_vy
         sta player_vy
         rts
+
+    ; Tests to see if the player is standing on a wall. Preserves y.
+    testhit:
+        lda player_y
+        and #$f0
+        sta offset
+
+        lda player_x
+        lsr
+        lsr
+        lsr
+        lsr
+        ora offset
+        tax
+
+        lda map_table, x
+        rts
+
+        .section zp
+            offset: .byte ?
+        .send
     .bend
 
 ; --- Maths -----------------------------------------------------------------
