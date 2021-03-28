@@ -51,11 +51,11 @@ _entry:
 
     ; Initialise.
 
-    lda #$86
+    lda #$2e
     sta player_h
-    lda #8*16
+    lda #$9c
     sta player_x
-    lda #12*16
+    lda #$a2
     sta player_y
     lda #0
     sta player_vx
@@ -287,7 +287,7 @@ render:
             sbc identity_table, x
             tax
             lda deltadistx
-            jsr mul_8x8_8f
+            jsr mul_8x8_8fs
             sta sidedistx
 
             lda #$10
@@ -322,7 +322,7 @@ render:
             sbc identity_table, x
             tax
             lda deltadisty
-            jsr mul_8x8_8f
+            jsr mul_8x8_8fs
             sta sidedisty
 
             lda #$10
@@ -347,6 +347,7 @@ render:
             clc
             lda sidedistx, x
             adc deltadistx, x
+            bcs overflow            ; too far, give up
             sta sidedistx, x
             clc
             lda mx, x
@@ -401,6 +402,7 @@ render:
             jsr mul_8x8_8fs         ; signed multiply
         .bend
 
+    draw:
         tax
         ldy height_table, x
         ldx side
@@ -410,6 +412,13 @@ render:
         jsr vline
 
         jmp column_loop
+
+    ; Looking diagonally across a 16x16 grid produces a distance which is too
+    ; big to fit into our number representation, so we just give up.
+
+    overflow:
+        lda #$ff
+        jmp draw
 
         .section zp
             column:     .byte ?
@@ -768,7 +777,7 @@ height_table:
 sin_table:
 cos_table = sin_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char 15.9 * sin(torad(i))
+        .char 15.99 * sin(torad(i))
     .next
 
 dirx_table = sin_table
@@ -776,13 +785,13 @@ diry_table = cos_table
 
 inv_sincos_table:
     .for i := 0, i < 256, i += 1
-        .char 16.0 * clamp(div(1.0, sin(torad(i))), -7.9, 7.9)
+        .char 16.0 * clamp(div(1.0, sin(torad(i))), -7.99, 7.99)
     .next
 
 deltadistx_table:
 deltadisty_table = deltadistx_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char 16.0 * clamp(abs(div(1, sin(torad(i)))), -7.9, 7.9)
+        .char 16.0 * clamp(abs(div(1, sin(torad(i)))), -7.99, 7.99)
     .next
 
 .align $100
