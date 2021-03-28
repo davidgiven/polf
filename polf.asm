@@ -166,7 +166,7 @@ cls:
     bne -
     rts
 
-; On entry: x=x coord, y=height
+; On entry: x=x coord, y=height, a=char
 vline:
     .block
         sta char
@@ -400,12 +400,45 @@ render:
             tax
             tya
             jsr mul_8x8_8fs         ; signed multiply
+            sta distance
+        .bend
+
+        ; Compute the 'texture' coordinate.
+
+        .block
+            tax
+            ldy raydir
+            lda side
+            bne side_y
+
+            lda diry_table, y
+            jsr mul_8x8_8fs
+            clc
+            adc player_y
+            jmp exit
+
+        side_y:
+            lda dirx_table, y
+            jsr mul_8x8_8fs
+            clc
+            adc player_x
+
+        exit:
+            ldx #0
+            and #$08                ; fractional part
+            bne +
+            inx
+        +
+            stx texx
         .bend
 
     draw:
-        tax
+        ldx distance
         ldy height_table, x
-        ldx side
+        lda texx
+        asl
+        ora side
+        tax
         lda textures_table, x
         tax
         ldx column
@@ -432,11 +465,15 @@ render:
             stepx:      .byte ?
             stepy:      .byte ?
             side:       .byte ?
+            distance:   .byte ?
+            texx:       .byte ?
         .send
 
         textures_table:
-            .byte 32+128    ; solid block
-            .byte 102       ; half fill
+            .byte 32+128
+            .byte 92+128
+            .byte 102
+            .byte 92
     .bend
 
 ; --- Handle player motion --------------------------------------------------
