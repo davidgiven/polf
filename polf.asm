@@ -29,6 +29,16 @@ ACCELERATION = $08
     player_vx:  .byte ?
     player_vy:  .byte ?
     player_vh:  .byte ?
+
+    object_x:   .byte ?
+    object_y:   .byte ?
+    object_vx:  .byte ?
+    object_vy:  .byte ?
+
+    x1:         .byte ?
+    x2:         .byte ?
+    y1:         .byte ?
+    y2:         .byte ?
 .send
 
 ; --- Header ----------------------------------------------------------------
@@ -51,21 +61,26 @@ _entry:
 
     ; Initialise.
 
-    lda #$2e
+    lda #$00
     sta player_h
-    lda #$9c
+    lda #$80
     sta player_x
-    lda #$a2
+    lda #$90
     sta player_y
     lda #0
     sta player_vx
     sta player_vy
     sta player_vh
+    lda #$80
+    sta object_x
+    lda #$80
+    sta object_y
 
 -
     jsr cls
     jsr moveplayer
     jsr render
+    jsr draw_object
     jsr draw_status
     jsr redraw
     jmp -
@@ -103,6 +118,18 @@ draw_status:
 
         iny
         lda player_vh
+        jsr drawbyte
+
+        iny
+        lda relx
+        jsr drawbyte
+
+        iny
+        lda rely
+        jsr drawbyte
+
+        iny
+        lda theta
         jsr drawbyte
 
         rts
@@ -365,6 +392,7 @@ render:
             tay
             lda map_table, y
             beq loop
+            stx side
         .bend
 
         ; Compute the intersection distance.
@@ -384,23 +412,17 @@ render:
             sbc identity_table, y   ; (1-step)/2 - (pos-map)
             tay
 
-            txa                     ; set flags
-            sta side
-            beq +
-
+            lda sideoffset_table, x
             clc
-            lda raydir
-            adc #$40
-            jmp do_multiply
-        +
-            lda raydir
-        do_multiply:
+            adc raydir
             tax
             lda inv_sincos_table, x
             tax
             tya
             jsr mul_8x8_8fs         ; signed multiply
             sta distance
+            ldx column
+            sta zbuffer, x
         .bend
 
         ; Compute the 'texture' coordinate.
@@ -425,7 +447,7 @@ render:
 
         exit:
             ldx #0
-            and #$08                ; fractional part
+            and #$08
             bne +
             inx
         +
@@ -474,8 +496,42 @@ render:
             .byte 92+128
             .byte 102
             .byte 92
+
+        sideoffset_table:
+            .byte $40
+            .byte 0
     .bend
 
+; --- Draw the object -------------------------------------------------------
+
+draw_object:
+    .block
+        lda object_x
+        ldy object_y
+
+        jsr arctan2
+        sta theta
+
+        sec
+        sbc player_h
+        clc
+        adc #20
+        cmp #40
+        bcs invisible
+        tax
+        lda #0
+        sta backbuffer+40, x
+
+   invisible:
+        rts
+
+   .bend
+
+        .section zp
+            relx: .byte ?
+            rely: .byte ?
+            theta: .byte ?
+        .send
 ; --- Handle player motion --------------------------------------------------
 
 moveplayer:
@@ -684,7 +740,7 @@ sm3 lda square1_hi, x
 sm4 sbc square2_hi, x
     rts
 
-; Computes A = A*X unsigned, where all numbers are (optionally signed) fixeds.
+; Computes A = A*X unsigned, where all numbers are unsigned fixeds.
 mul_8x8_8f:
     .block
         jsr mul_8x8_16
@@ -704,7 +760,7 @@ mul_8x8_8f:
         .send
     .bend
 
-; Computes A = A*X signed, where all numbers are (optionally signed) fixeds.
+; Computes A = A*X signed, where all numbers are signed fixeds.
 mul_8x8_8fs:
     .block
         sta lhs
@@ -748,6 +804,65 @@ mul_8x8_8fs:
         .send
     .bend
 
+; Super-fast arctan2 code without division (!), taken from here:
+; https://codebase64.org/doku.php?id=base:8bit_atan2_8-bit_angle
+;
+; Computes A = arctan2(Y-player_y, A-player_x)
+arctan2:
+    .block
+        sec
+        tax
+        lda player_x
+        sbc identity_table, x
+        sta relx
+        bcs +
+        eor #$ff
+    +
+        tax
+        rol octant
+
+        sec
+        lda player_y
+        sbc identity_table, y
+        sta rely
+        bcs +
+        eor #$ff
+    +
+        tay
+        rol octant
+
+        sec
+        lda log2_table, x
+        sbc log2_table, y
+        bcc +
+        eor #$ff
+    +
+        tax
+
+        lda octant
+        rol
+        and #%111
+        tay
+
+        lda atan_table, x
+        eor octant_adjust_table, y
+        rts
+
+    octant_adjust_table:
+        .byte %00111111     ;; x+,y+,|x|>|y|
+        .byte %00000000     ;; x+,y+,|x|<|y|
+        .byte %11000000     ;; x+,y-,|x|>|y|
+        .byte %11111111     ;; x+,y-,|x|<|y|
+        .byte %01000000     ;; x-,y+,|x|>|y|
+        .byte %01111111     ;; x-,y+,|x|<|y|
+        .byte %10111111     ;; x-,y-,|x|>|y|
+        .byte %10000000     ;; x-,y-,|x|<|y|
+
+        .section zp
+            octant: .byte ?
+        .send
+    .bend
+
 map_table:
     .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
     .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
@@ -768,6 +883,26 @@ map_table:
 
 hex_table:
     .text "0123456789ABCDEF"
+
+torad .function i
+    .endf i * (PI * 2 / 256)
+
+clamp .function n, lo, hi
+    .if n < lo
+        n := lo
+    .endif
+    .if n > hi
+        n := hi
+    .endif
+    .endf n
+
+div .function x, y
+    .if y == 0
+        n := 9999
+    .else
+        n := x / y
+    .endif
+    .endf n
 
 ; backbuffer row addresses.
 
@@ -809,26 +944,6 @@ identity_table:
         .byte i
     .next
 
-torad .function i
-    .endf i * (PI * 2 / 256)
-
-clamp .function n, lo, hi
-    .if n < lo
-        n := lo
-    .endif
-    .if n > hi
-        n := hi
-    .endif
-    .endf n
-
-div .function x, y
-    .if y == 0
-        n := 9999
-    .else
-        n := x / y
-    .endif
-    .endf n
-
 height_table:
     .for i := 0, i < 256, i += 1
         f := i / 16.0
@@ -842,25 +957,73 @@ height_table:
         .byte h
     .next
 
+atan_table:
+    ; This is supposed to be atan(2^(x/32))*128/pi, but I can't make that
+    ; reproduce the numbers here, so it's hard-coded.
+
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00
+    .byte $00,$00,$00,$00,$00,$01,$01,$01
+    .byte $01,$01,$01,$01,$01,$01,$01,$01
+    .byte $01,$01,$01,$01,$01,$01,$01,$01
+    .byte $01,$01,$01,$01,$01,$01,$01,$01
+    .byte $01,$01,$01,$01,$01,$02,$02,$02
+    .byte $02,$02,$02,$02,$02,$02,$02,$02
+    .byte $02,$02,$02,$02,$02,$02,$02,$02
+    .byte $03,$03,$03,$03,$03,$03,$03,$03
+    .byte $03,$03,$03,$03,$03,$04,$04,$04
+    .byte $04,$04,$04,$04,$04,$04,$04,$04
+    .byte $05,$05,$05,$05,$05,$05,$05,$05
+    .byte $06,$06,$06,$06,$06,$06,$06,$06
+    .byte $07,$07,$07,$07,$07,$07,$08,$08
+    .byte $08,$08,$08,$08,$09,$09,$09,$09
+    .byte $09,$0a,$0a,$0a,$0a,$0b,$0b,$0b
+    .byte $0b,$0c,$0c,$0c,$0c,$0d,$0d,$0d
+    .byte $0d,$0e,$0e,$0e,$0e,$0f,$0f,$0f
+    .byte $10,$10,$10,$11,$11,$11,$12,$12
+    .byte $12,$13,$13,$13,$14,$14,$15,$15
+    .byte $15,$16,$16,$17,$17,$17,$18,$18
+    .byte $19,$19,$19,$1a,$1a,$1b,$1b,$1c
+    .byte $1c,$1c,$1d,$1d,$1e,$1e,$1f,$1f
+
+log2_table:
+    .byte 0
+    .for i := 1, i < 256, i += 1
+        .byte log(i)*32.0 / log(2)
+    .next
+
 sin_table:
 cos_table = sin_table + 64
     .for i := 0, i < 256+64, i += 1
         .char 15.99 * sin(torad(i))
     .next
 
-dirx_table = sin_table
-diry_table = cos_table
+dirx_table = cos_table
+diry_table = sin_table
 
 inv_sincos_table:
     .for i := 0, i < 256, i += 1
         .char 16.0 * clamp(div(1.0, sin(torad(i))), -7.99, 7.99)
     .next
 
-deltadistx_table:
-deltadisty_table = deltadistx_table + 64
+deltadisty_table:
+deltadistx_table = deltadisty_table + 64
     .for i := 0, i < 256+64, i += 1
         .char 16.0 * clamp(abs(div(1, sin(torad(i)))), -7.99, 7.99)
     .next
+
+.section zp
+zbuffer:
+    .fill 40, ?
+.send
 
 .align $100
 backbuffer:
