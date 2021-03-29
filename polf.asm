@@ -518,6 +518,13 @@ draw_object:
         jsr arctan2
         sta theta
 
+        sec
+        lda theta
+        sbc player_h
+        clc
+        adc #20
+        sta column
+
         lda relx
         jsr square
         sta distance+1
@@ -534,20 +541,37 @@ draw_object:
         adc distance+1
         ldx distance+0
         jsr sqrt16
-        sta distance+0
+        sta distance+0          ; distance+0 is real distance
 
-        sec
-        lda theta
-        sbc player_h
-        clc
-        adc #20
-        cmp #40
-        bcs invisible
+        ldx distance+0
+        lda height_table, x     ; height of object
+        sta width
+        sta height
+
+        lsr                     ; half the size
         tax
-        lda #0
-        sta backbuffer+40, x
+        sec
+        lda column
+        sbc identity_table, x   ; adjust column to LHS of sprite
 
-   invisible:
+    loop:
+        ldx column
+        cpx #40
+        bcs invisible
+        lda distance
+        cmp zbuffer, x          ; check zbuffer to see if this is drawable
+        bcs invisible
+        sta zbuffer, x          ; update zbuffer
+
+        lda #0
+        ldy height
+        jsr vline
+
+    invisible:
+        inc column
+        dec width
+        bne loop
+
         rts
 
    .bend
@@ -557,6 +581,9 @@ draw_object:
             rely: .byte ?
             theta: .byte ?
             distance: .word ?
+            column: .byte ?
+            width: .byte ?
+            height: .byte ?
         .send
 ; --- Handle player motion --------------------------------------------------
 
