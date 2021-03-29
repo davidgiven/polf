@@ -132,6 +132,12 @@ draw_status:
         lda theta
         jsr drawbyte
 
+        iny
+        lda distance+1
+        jsr drawbyte
+        lda distance+0
+        jsr drawbyte
+
         rts
 
     drawbyte:
@@ -512,7 +518,26 @@ draw_object:
         jsr arctan2
         sta theta
 
+        lda relx
+        jsr square
+        sta distance+1
+        sty distance+0
+
+        lda rely
+        jsr square
+        tax
+        tya
+        clc
+        adc distance+0
+        sta distance+0
+        txa
+        adc distance+1
+        ldx distance+0
+        jsr sqrt16
+        sta distance+0
+
         sec
+        lda theta
         sbc player_h
         clc
         adc #20
@@ -531,6 +556,7 @@ draw_object:
             relx: .byte ?
             rely: .byte ?
             theta: .byte ?
+            distance: .word ?
         .send
 ; --- Handle player motion --------------------------------------------------
 
@@ -740,6 +766,22 @@ sm3 lda square1_hi, x
 sm4 sbc square2_hi, x
     rts
 
+; Computes AY = A, unsigned.
+square:
+    .block
+        tax                     ; set flags
+        bpl +
+        eor #$ff                ; approximate abs
+    +
+        lsr
+        tax
+        stx sm5+1
+        stx sm6+1
+    sm5 ldy square1_lo, x
+    sm6 lda square1_hi, x
+        rts
+    .bend
+
 ; Computes A = A*X unsigned, where all numbers are unsigned fixeds.
 mul_8x8_8f:
     .block
@@ -849,17 +891,63 @@ arctan2:
         rts
 
     octant_adjust_table:
-        .byte %00111111     ;; x+,y+,|x|>|y|
-        .byte %00000000     ;; x+,y+,|x|<|y|
-        .byte %11000000     ;; x+,y-,|x|>|y|
-        .byte %11111111     ;; x+,y-,|x|<|y|
-        .byte %01000000     ;; x-,y+,|x|>|y|
-        .byte %01111111     ;; x-,y+,|x|<|y|
-        .byte %10111111     ;; x-,y-,|x|>|y|
-        .byte %10000000     ;; x-,y-,|x|<|y|
+        .byte %00111111     ; x+,y+,|x|>|y|
+        .byte %00000000     ; x+,y+,|x|<|y|
+        .byte %11000000     ; x+,y-,|x|>|y|
+        .byte %11111111     ; x+,y-,|x|<|y|
+        .byte %01000000     ; x-,y+,|x|>|y|
+        .byte %01111111     ; x-,y+,|x|<|y|
+        .byte %10111111     ; x-,y-,|x|>|y|
+        .byte %10000000     ; x-,y-,|x|<|y|
 
         .section zp
             octant: .byte ?
+        .send
+    .bend
+
+; Medium fast 16-bit square root, taken from here:
+; https://codebase64.org/doku.php?id=base:16bit_and_24bit_sqrt
+;
+; Computes A = sqrt(AX).
+
+sqrt16:
+    .block
+        sta hi
+        stx lo
+
+        ldy #1
+        sty t1
+        dey
+        sty t2
+    again:
+        sec
+        lda lo
+        tax
+        sbc t1
+        sta lo
+
+        lda hi
+        sbc t2
+        sta hi
+
+        bcs continue
+        tya
+        rts
+
+    continue:
+        iny
+        lda t1
+        adc #1
+        sta t1
+        bcc again
+        inc t2
+        jmp again
+
+        .section zp
+            lo: .byte ?
+            hi: .byte ?
+            t1: .byte ?
+            t2: .byte ?
         .send
     .bend
 
