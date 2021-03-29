@@ -71,6 +71,8 @@ _entry:
     sta player_vx
     sta player_vy
     sta player_vh
+    sta object_vx
+    sta object_vy
     lda #$80
     sta object_x
     lda #$80
@@ -121,11 +123,11 @@ draw_status:
         jsr drawbyte
 
         iny
-        lda relx
+        lda object_vx
         jsr drawbyte
 
         iny
-        lda rely
+        lda object_vy
         jsr drawbyte
 
         iny
@@ -133,9 +135,11 @@ draw_status:
         jsr drawbyte
 
         iny
-        lda distance+1
-        jsr drawbyte
         lda distance+0
+        jsr drawbyte
+
+        iny
+        lda dotproduct
         jsr drawbyte
 
         rts
@@ -512,11 +516,13 @@ render:
 
 draw_object:
     .block
+        ; Calculate view angle of object.
+
         lda object_x
         ldy object_y
 
         jsr arctan2
-        sta theta
+        sta theta               ; also sets relx/rely
 
         sec
         lda theta
@@ -524,6 +530,8 @@ draw_object:
         clc
         adc #20
         sta column
+
+        ; Calculate real distance of object.
 
         lda relx
         jsr square
@@ -542,6 +550,70 @@ draw_object:
         ldx distance+0
         jsr sqrt16
         sta distance+0          ; distance+0 is real distance
+
+        ; Close enough that the player's colliding with it?
+
+        cmp #$06
+        bcs nobump
+
+        ; Physics, sigh. We're not going to do true collision mechanics,
+        ; because it's complicated and I can't be bothered, so we're just
+        ; going to nudge it in the collision direction. We do need to
+        ; calculate the dot product to determine whether we're approaching
+        ; it or not.
+
+        sec
+        lda object_vx
+        sbc player_vx
+        sta x2
+
+        sec
+        lda object_vy
+        sbc player_vy
+        sta y2                  ; x2, y2 is relative velocity
+
+        lda relx
+        ldx x2
+        jsr mul_8x8_8fs
+        sta dotproduct
+
+        lda rely
+        ldx y2
+        jsr mul_8x8_8fs
+        clc
+        adc dotproduct
+        bmi nobump              ; departing object, don't collide
+
+        ; Set the object's velocity.
+
+        lda player_vx
+        cmp #80
+        ror
+        clc
+        adc player_vx           ; compute vx*1.5
+        sta object_vx
+
+        lda player_vy
+        cmp #80
+        ror
+        clc
+        adc player_vy           ; compute vy*1.5
+        sta object_vy
+
+    nobump:
+
+        ; Apply motion (will take effect next frame).
+
+        clc
+        lda object_x
+        adc object_vx
+        sta object_x
+        clc
+        lda object_y
+        adc object_vy
+        sta object_y
+
+        ; Prepare for drawing.
 
         ldx distance+0
         lda height_table, x     ; height of object
@@ -584,6 +656,7 @@ draw_object:
             column: .byte ?
             width: .byte ?
             height: .byte ?
+            dotproduct: .byte ?
         .send
 ; --- Handle player motion --------------------------------------------------
 
