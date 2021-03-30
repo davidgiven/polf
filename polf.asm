@@ -23,6 +23,8 @@ MAP_SIZE = 8
 ACCELERATION = $08
 
 .section zp
+    ticks:      .byte ?
+
     player_x:   .byte ?
     player_y:   .byte ?
     player_h:   .byte ?
@@ -79,6 +81,8 @@ _entry:
     sta object_y
 
 -
+    dec ticks
+
     jsr cls
     jsr moveplayer
     jsr render
@@ -86,6 +90,29 @@ _entry:
     jsr draw_status
     jsr redraw
     jmp -
+
+; Tests to see if (X, A) is on a wall. Preserves Y. Returns Z or !Z.
+
+test_wall:
+    .block
+        and #$f0
+        sta offset
+
+        txa
+        lsr
+        lsr
+        lsr
+        lsr
+        ora offset
+        tax
+
+        lda map_table, x
+        rts
+
+        .section zp
+            offset: .byte ?
+        .send
+    .bend
 
 ; --- Screen draw -----------------------------------------------------------
 
@@ -606,12 +633,61 @@ draw_object:
 
         clc
         lda object_x
+        tay
         adc object_vx
         sta object_x
+        tax
+        lda object_y
+        jsr test_wall
+        beq +
+        sty object_x            ; if collision, bounce in X axis
+        lda object_vx
+        eor #$ff
+        sta object_vx
+    +
+
         clc
         lda object_y
+        tay
         adc object_vy
         sta object_y
+        ldx object_x
+        jsr test_wall
+        beq +
+        sty object_y            ; if collision, bounce in Y axis
+        lda object_vy
+        eor #$ff
+        sta object_vy
+    +
+
+        ; Diminish the object's velocity.
+
+        lda ticks
+        and #7
+        bne noslow
+
+        ldx #1
+        lda object_vx
+        beq ++
+        bmi +
+        ldx #-1
+    +
+        clc
+        adc identity_table, x
+        sta object_vx
+    +
+
+        ldx #1
+        lda object_vy
+        beq ++
+        bmi +
+        ldx #-1
+    +
+        clc
+        adc identity_table, x
+        sta object_vy
+    +
+    noslow:
 
         ; Prepare for drawing.
 
@@ -658,6 +734,7 @@ draw_object:
             height: .byte ?
             dotproduct: .byte ?
         .send
+
 ; --- Handle player motion --------------------------------------------------
 
 moveplayer:
@@ -669,7 +746,9 @@ moveplayer:
         tay
         adc player_vx
         sta player_x
-        jsr testhit
+        tax
+        lda player_y
+        jsr test_wall
         beq +
         sty player_x
     +
@@ -679,7 +758,8 @@ moveplayer:
         tay
         adc player_vy
         sta player_y
-        jsr testhit
+        ldx player_x
+        jsr test_wall
         beq +
         sty player_y
     +
@@ -819,27 +899,6 @@ moveplayer:
         adc player_vy
         sta player_vy
         rts
-
-    ; Tests to see if the player is standing on a wall. Preserves y.
-    testhit:
-        lda player_y
-        and #$f0
-        sta offset
-
-        lda player_x
-        lsr
-        lsr
-        lsr
-        lsr
-        ora offset
-        tax
-
-        lda map_table, x
-        rts
-
-        .section zp
-            offset: .byte ?
-        .send
     .bend
 
 ; --- Maths -----------------------------------------------------------------
