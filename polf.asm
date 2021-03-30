@@ -36,6 +36,8 @@ ACCELERATION = $08
     object_y:   .byte ?
     object_vx:  .byte ?
     object_vy:  .byte ?
+    object_dh:  .byte ?
+    object_d:   .byte ?
 
     x1:         .byte ?
     x2:         .byte ?
@@ -86,6 +88,7 @@ _entry:
     jsr cls
     jsr moveplayer
     jsr render
+    jsr move_object
     jsr draw_object
     jsr draw_status
     jsr redraw
@@ -158,15 +161,11 @@ draw_status:
         jsr drawbyte
 
         iny
-        lda theta
+        lda object_dh
         jsr drawbyte
 
         iny
-        lda distance+0
-        jsr drawbyte
-
-        iny
-        lda dotproduct
+        lda object_d
         jsr drawbyte
 
         rts
@@ -539,9 +538,9 @@ render:
             .byte 0
     .bend
 
-; --- Draw the object -------------------------------------------------------
+; --- Object handling -------------------------------------------------------
 
-draw_object:
+move_object:
     .block
         ; Calculate view angle of object.
 
@@ -549,23 +548,16 @@ draw_object:
         ldy object_y
 
         jsr arctan2
-        sta theta               ; also sets relx/rely
-
-        sec
-        lda theta
-        sbc player_h
-        clc
-        adc #20
-        sta column
+        sta object_dh           ; also sets x1/y1
 
         ; Calculate real distance of object.
 
-        lda relx
+        lda x1
         jsr square
         sta distance+1
         sty distance+0
 
-        lda rely
+        lda y1
         jsr square
         tax
         tya
@@ -576,7 +568,7 @@ draw_object:
         adc distance+1
         ldx distance+0
         jsr sqrt16
-        sta distance+0          ; distance+0 is real distance
+        sta object_d            ; real distance
 
         ; Close enough that the player's colliding with it?
 
@@ -599,12 +591,12 @@ draw_object:
         sbc player_vy
         sta y2                  ; x2, y2 is relative velocity
 
-        lda relx
+        lda x1
         ldx x2
         jsr mul_8x8_8fs
         sta dotproduct
 
-        lda rely
+        lda y1
         ldx y2
         jsr mul_8x8_8fs
         clc
@@ -688,10 +680,27 @@ draw_object:
         sta object_vy
     +
     noslow:
+        rts
+
+        .section zp
+            distance: .word ?
+            dotproduct: .byte ?
+        .send
+    .bend
+
+draw_object:
+    .block
 
         ; Prepare for drawing.
 
-        ldx distance+0
+        sec
+        lda object_dh
+        sbc player_h
+        clc
+        adc #20
+        sta column
+
+        ldx object_d
         lda height_table, x     ; height of object
         sta width
         sta height
@@ -706,7 +715,7 @@ draw_object:
         ldx column
         cpx #40
         bcs invisible
-        lda distance
+        lda object_d
         cmp zbuffer, x          ; check zbuffer to see if this is drawable
         bcs invisible
         sta zbuffer, x          ; update zbuffer
@@ -722,18 +731,12 @@ draw_object:
 
         rts
 
-   .bend
-
         .section zp
-            relx: .byte ?
-            rely: .byte ?
-            theta: .byte ?
-            distance: .word ?
             column: .byte ?
             width: .byte ?
             height: .byte ?
-            dotproduct: .byte ?
         .send
+   .bend
 
 ; --- Handle player motion --------------------------------------------------
 
@@ -1015,7 +1018,7 @@ arctan2:
         tax
         lda player_x
         sbc identity_table, x
-        sta relx
+        sta x1
         bcs +
         eor #$ff
     +
@@ -1025,7 +1028,7 @@ arctan2:
         sec
         lda player_y
         sbc identity_table, y
-        sta rely
+        sta y1
         bcs +
         eor #$ff
     +
