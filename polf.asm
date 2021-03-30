@@ -39,6 +39,11 @@ ACCELERATION = $08
     object_dh:  .byte ?
     object_d:   .byte ?
 
+    hole_x:     .byte ?
+    hole_y:     .byte ?
+    hole_dh:    .byte ?
+    hole_d:     .byte ?
+
     x1:         .byte ?
     x2:         .byte ?
     y1:         .byte ?
@@ -81,6 +86,9 @@ _entry:
     sta object_x
     lda #$80
     sta object_y
+    lda #$20
+    sta hole_x
+    sta hole_y
 
 -
     dec ticks
@@ -89,7 +97,19 @@ _entry:
     jsr moveplayer
     jsr render
     jsr move_object
+    jsr move_hole
+
+    lda object_d
+    cmp hole_d
+    bcs +
     jsr draw_object
+    jsr draw_hole
+    jmp ++
++
+    jsr draw_hole
+    jsr draw_object
++
+
     jsr draw_status
     jsr redraw
     jmp -
@@ -721,6 +741,96 @@ draw_object:
         sta zbuffer, x          ; update zbuffer
 
         lda #0
+        ldy height
+        jsr vline
+
+    invisible:
+        inc column
+        dec width
+        bne loop
+
+        rts
+
+        .section zp
+            column: .byte ?
+            width: .byte ?
+            height: .byte ?
+        .send
+   .bend
+
+; --- Hole handline ---------------------------------------------------------
+
+move_hole:
+    .block
+        ; Calculate view angle of hole.
+
+        lda hole_x
+        ldy hole_y
+
+        jsr arctan2
+        sta hole_dh           ; also sets x1/y1
+
+        ; Calculate real distance of hole.
+
+        lda x1
+        jsr square
+        sta distance+1
+        sty distance+0
+
+        lda y1
+        jsr square
+        tax
+        tya
+        clc
+        adc distance+0
+        sta distance+0
+        txa
+        adc distance+1
+        ldx distance+0
+        jsr sqrt16
+        sta hole_d            ; real distance
+
+        rts
+
+        .section zp
+            distance: .word ?
+            dotproduct: .byte ?
+        .send
+    .bend
+
+draw_hole:
+    .block
+
+        ; Prepare for drawing.
+
+        sec
+        lda hole_dh
+        sbc player_h
+        clc
+        adc #20
+        sta column
+
+        ldx hole_d
+        lda height_table, x     ; height of hole
+        sta width
+        sta height
+
+        lsr                     ; half the size
+        tax
+        sec
+        lda column
+        sbc identity_table, x   ; adjust column to LHS of sprite
+
+    loop:
+        ldx column
+        cpx #40
+        bcs invisible
+        lda hole_d
+        cmp zbuffer, x          ; check zbuffer to see if this is drawable
+        bcs invisible
+        sta zbuffer, x          ; update zbuffer
+
+        lda #1
         ldy height
         jsr vline
 
