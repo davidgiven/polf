@@ -48,6 +48,9 @@ ACCELERATION = $08
     y1:         .byte ?
     x2:         .byte ?
     y2:         .byte ?
+
+    level_size: .byte ?
+    level_seed: .byte ?
 .send
 
 ; --- Header ----------------------------------------------------------------
@@ -69,6 +72,16 @@ _entry:
     sei
 
     ; Initialise.
+
+    lda #0
+    sta level_seed
+    lda #8
+    sta level_size
+    jsr create_level
+    jsr cls
+    jsr draw_level
+    jsr redraw
+    jmp *
 
     lda #$00
     sta player_h
@@ -592,9 +605,27 @@ move_object:
         jsr sqrt16
         sta object_d            ; real distance
 
+        ; Grab mechanic: pressing SPACE lets you drag the object with you.
+
+        cmp #$10
+        bcs +
+        lda #8
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00000100
+        bne +
+
+        lda player_vx
+        sta object_vx
+        lda player_vy
+        sta object_vy
+        jmp nobump
+    +
+
         ; Close enough that the player's colliding with it?
 
-        cmp #$06
+        lda object_d
+        cmp #$08
         bcs nobump
 
         ; Normalise the collision vector in x1/y1.
@@ -630,6 +661,8 @@ move_object:
 
         cmp #$80
         ror
+        cmp #$f1
+        bcc nobump
         sta dotproduct
 
         ; Now scale the collision vector and apply to the object velocity
@@ -1027,6 +1060,172 @@ moveplayer:
         rts
     .bend
 
+; --- Level creation --------------------------------------------------------
+
+; Creates a maze based on level_size and level_seed.
+; The state used in each cell is the offset of the parent. Offsets $00, $01 and
+; $02 are special, representing a visited (empty) block, a normal wall, and an
+; impassable wall respectively.
+
+create_level:
+    .block
+        ; Fill the maze.
+
+        ldx #0
+        lda #$01
+    -
+        sta map_table, x
+        dex
+        bne -
+
+        ; Draw the top wall.
+
+        ldx level_size
+        lda #$02
+    -
+        sta map_table-1, x
+        dex
+        bne -
+
+        ; Draw the left and right walls.
+
+        ldx #0
+        ldy level_size
+        dey
+        sty sm1+1
+        iny
+    -
+        lda #$02
+        sta map_table, x
+    sm1 sta map_table, x
+        txa
+        clc
+        adc #$10
+        tax
+        dey
+        bne -
+
+        ; Draw the bottom wall.
+
+        lda level_size
+        sec
+        sbc #1
+        asl
+        asl
+        asl
+        asl
+        tax
+        ldy level_size
+        lda #$02
+    -
+        sta map_table, x
+        inx
+        dey
+        bne -
+        rts
+        
+        ; Initialise recursion.
+
+        ldy #16+1
+        sty co
+        lda #0
+        sta map_table, y
+        lda level_seed
+        sta seed
+
+        ; Begin random walk.
+
+    walk_loop:
+        jsr shuffled
+        and #3
+        tay
+        lda #4
+        sta dir_count
+    dir_loop:
+        lda direction_table, y
+        clc
+        adc co
+        tax
+        lda map_table, x
+        cmp #$ff
+        beq next_dir             ; don't pass through impassable walls
+
+        txa
+        clc
+        adc direction_table, y
+        tax
+        lda map_table, x
+
+    bad_dir:
+        
+        tax                     ; save direction in X
+        clc
+        adc co
+
+    next_dir:
+
+
+
+        rts
+
+    direction_table:
+        .char -16
+        .char 1
+        .char 16
+        .char -1
+
+        .section zp
+            co: .byte ?
+            dir_count: .byte ?
+        .send
+    .bend
+
+draw_level:
+    .block
+        lda #<(backbuffer-1)
+        sta sptr+0
+        lda #>(backbuffer-1)
+        sta sptr+1
+        lda #<(map_table-1)
+        sta mptr+0
+        lda #>(map_table-1)
+        sta mptr+1
+
+        ldx #16
+    outer_loop:
+        ldy #16
+    inner_loop:
+        lda (mptr), y
+        sta (sptr), y
+        dey
+        bne inner_loop
+
+        clc
+        lda sptr+0
+        adc #40
+        sta sptr+0
+        bcc +
+        inc sptr+1
+    +
+
+        clc
+        lda mptr+0
+        adc #16
+        sta mptr+0
+        bcc +
+        inc mptr+1
+    +
+
+        dex
+        bne outer_loop
+        rts
+
+        .section zp
+            mptr: .word ?
+            sptr: .word ?
+        .send
+    .bend
+
 ; --- Maths -----------------------------------------------------------------
 
 ; Fast multiplication routines from
@@ -1231,23 +1430,25 @@ sqrt16:
         .send
     .bend
 
-map_table:
-    .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,1,1,0,1,1
-    .byte 1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1
-    .byte 1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1
-    .byte 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+; Produce a shuffled number: if you call this 256 times, you get all 256 values.
+; Returns the value in A; preserves X and Y.
+
+shuffled:
+    .block
+        lda seed
+        beq do_eor
+        asl
+        beq no_eor
+        bcc no_eor
+    do_eor:
+        eor #$1d
+    no_eor:
+        sta seed
+    .bend
+
+    .section zp
+        seed: .byte ?
+    .send
 
 hex_table:
     .text "0123456789ABCDEF"
@@ -1403,6 +1604,8 @@ zbuffer:
 .align $100
 backbuffer:
     .fill 1024, ?
+map_table:
+    .fill 16*16, ?
 
     * = 0
     .dsection zp
