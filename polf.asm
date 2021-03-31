@@ -45,8 +45,8 @@ ACCELERATION = $08
     hole_d:     .byte ?
 
     x1:         .byte ?
-    x2:         .byte ?
     y1:         .byte ?
+    x2:         .byte ?
     y2:         .byte ?
 .send
 
@@ -529,6 +529,8 @@ render:
 
     overflow:
         lda #$ff
+        ldx column
+        sta zbuffer, x
         jmp draw
 
         .section zp
@@ -568,7 +570,7 @@ move_object:
         ldy object_y
 
         jsr arctan2
-        sta object_dh           ; also sets x1/y1
+        sta object_dh           ; also sets x1 and y1
 
         ; Calculate real distance of object.
 
@@ -595,49 +597,62 @@ move_object:
         cmp #$06
         bcs nobump
 
-        ; Physics, sigh. We're not going to do true collision mechanics,
-        ; because it's complicated and I can't be bothered, so we're just
-        ; going to nudge it in the collision direction. We do need to
-        ; calculate the dot product to determine whether we're approaching
-        ; it or not.
+        ; Normalise the collision vector in x1/y1.
 
-        sec
-        lda object_vx
-        sbc player_vx
-        sta x2
+        ldx object_d
+        lda inverse_table, x
+        ldx x1
+        jsr mul_8x8_8f
+        sta x1
 
-        sec
-        lda object_vy
-        sbc player_vy
-        sta y2                  ; x2, y2 is relative velocity
+        ldx object_d
+        lda inverse_table, x
+        ldx y1
+        jsr mul_8x8_8f
+        sta y1
+
+        ; Calculate dot product of player velocity vector with the collision vector.
 
         lda x1
-        ldx x2
+        ldx player_vx
         jsr mul_8x8_8fs
         sta dotproduct
 
         lda y1
-        ldx y2
+        ldx player_vy
         jsr mul_8x8_8fs
         clc
         adc dotproduct
-        bmi nobump              ; departing object, don't collide
+        sta dotproduct
+        bpl nobump              ; don't push if object is departing
 
-        ; Set the object's velocity.
+        ; Scale the dot product to something sensible.
 
-        lda player_vx
-        cmp #80
+        cmp #$80
         ror
+        sta dotproduct
+
+        ; Now scale the collision vector and apply to the object velocity
+        ; vector.
+
+        ldx x1
+        jsr mul_8x8_8fs
         clc
-        adc player_vx           ; compute vx*1.5
+        adc object_vx
         sta object_vx
 
-        lda player_vy
-        cmp #80
-        ror
+        lda dotproduct
+        ldx y1
+        jsr mul_8x8_8fs
         clc
-        adc player_vy           ; compute vy*1.5
+        adc object_vy
         sta object_vy
+
+        ; As an optimisation, just stop the player dead.
+
+        lda #0
+        sta player_vx
+        sta player_vy
 
     nobump:
 
@@ -705,6 +720,7 @@ move_object:
         .section zp
             distance: .word ?
             dotproduct: .byte ?
+            p: .byte ?
         .send
     .bend
 
@@ -920,73 +936,70 @@ moveplayer:
         lda #3
         sta PIA1_PA
         lda PIA1_PB
-        tax
         and #%00000001
-        beq a_pressed
-        txa
+        bne +
+
+        lda player_h                ; A pressed
+        sec
+        sbc #$40
+        jsr accelerate
+    +
+
+        lda PIA1_PB
         and #%00000010
-        beq d_pressed
-        
+        bne +
+
+        lda player_h                ; D pressed
+        clc
+        adc #$40
+        jsr accelerate
+    +
+
         lda #4
         sta PIA1_PA
         lda PIA1_PB
         and #%00000010
-        beq w_pressed
+        bne +
+
+        lda player_h                ; W pressed
+        jsr accelerate
+    +
 
         lda #2
         sta PIA1_PA
         lda PIA1_PB
         and #%00000010
-        beq s_pressed
+        bne +
 
+        lda player_h                ; S pressed
+        clc
+        adc #$80
+        jsr accelerate
+    +
+        
         lda #7
         sta PIA1_PA
         lda PIA1_PB
         and #%00001000
-        beq comma_pressed
+        bne +
+
+        sec                         ; comma pressed
+        lda player_vh
+        sbc #$03
+        sta player_vh
+    +
 
         lda #6
         sta PIA1_PA
         lda PIA1_PB
         and #%00001000
-        beq dot_pressed
+        bne +
 
-        rts
-
-    w_pressed:
-        lda player_h
-        jmp accelerate
-
-    s_pressed:
-        lda player_h
-        clc
-        adc #$80
-        jmp accelerate
-
-    a_pressed:
-        lda player_h
-        sec
-        sbc #$40
-        jmp accelerate
-
-    d_pressed:
-        lda player_h
-        clc
-        adc #$40
-        jmp accelerate
-
-    dot_pressed:
-        clc
+        clc                         ; dot pressed
         lda player_vh
         adc #$03
         sta player_vh
-        rts
-
-    comma_pressed:
-        sec
-        lda player_vh
-        sbc #$03
-        sta player_vh
+    +
         rts
 
     accelerate:
@@ -1045,13 +1058,8 @@ square:
         bpl +
         eor #$ff                ; approximate abs
     +
-        lsr
         tax
-        stx sm5+1
-        stx sm6+1
-    sm5 ldy square1_lo, x
-    sm6 lda square1_hi, x
-        rts
+        jmp mul_8x8_16
     .bend
 
 ; Computes A = A*X unsigned, where all numbers are unsigned fixeds.
@@ -1315,6 +1323,13 @@ height_table:
             h := 1
         .endif
         .byte h
+    .next
+
+inverse_table:
+    .byte $ff
+    .for i := 1, i < 256, i += 1
+        f := i / 16.0
+        .byte clamp(16.0 / f, 0, 255.0)
     .next
 
 atan_table:
