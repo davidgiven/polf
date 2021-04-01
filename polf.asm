@@ -17,11 +17,27 @@ CRTC_ADDR = CRTC+0
 CRTC_STATUS = CRTC+1
 CRTC_DATA = CRTC+1
 
+FACTOR_BITS = 5
+FACTOR = 1.0<<FACTOR_BITS
+INT_BITS = 8 - FACTOR_BITS
+INT_MASK = ($ff << FACTOR_BITS) & $ff
+FRAC_MASK = ~INT_MASK
+
+MAP_BITS = INT_BITS
+MAP_ROW_SIZE = 1<<MAP_BITS
+MAP_ROW_MASK = ($ff<<MAP_BITS) & $ff
+MAP_COLUMN_MASK = ~MAP_ROW_MASK
+
 SCREEN = $8000
-MAP_SIZE = 8
 
 ACCELERATION = $08
 
+shift .macro insn, n
+    .rept \n
+        \insn
+    .next
+    .endm
+    
 .section zp
     ticks:      .byte ?
 
@@ -75,7 +91,7 @@ _entry:
 
     lda #0
     sta level_seed
-    lda #9
+    lda #8
     sta level_size
     jsr create_level
 
@@ -116,15 +132,13 @@ _entry:
 
 test_wall:
     .block
-        and #$f0
+        and #INT_MASK
         sta offset
 
         txa
-        lsr
-        lsr
-        lsr
-        lsr
+        shift lsr, INT_BITS
         ora offset
+        shift lsr, FACTOR_BITS-INT_BITS
         tax
 
         lda map_table, x
@@ -326,11 +340,11 @@ render:
         ; Calculate map location.
 
         lda player_x
-        and #$f0                ; truncate
+        and #INT_MASK
         sta mx
 
         lda player_y
-        and #$f0                ; truncate
+        and #INT_MASK
         sta my
 
         ; Initialise DDA.
@@ -350,28 +364,28 @@ render:
 
         do_neg_x:
             lda player_x
-            and #$0f            ; fractional part only
+            and #FRAC_MASK
             tax
             lda deltadistx
             jsr mul_8x8_8f
             sta sidedistx
 
-            lda #-$10
+            lda #-1.0*FACTOR
             jmp exit
 
         do_pos_x:
             lda player_x
-            and #$0f            ; fractional part only
+            and #FRAC_MASK
             tax
             sec
-            lda #$10            ; 1.0
+            lda #1.0*FACTOR
             sbc identity_table, x
             tax
             lda deltadistx
             jsr mul_8x8_8fs
             sta sidedistx
 
-            lda #$10
+            lda #1.0*FACTOR
         exit:
             sta stepx
         .bend
@@ -385,28 +399,28 @@ render:
 
         do_neg_y:
             lda player_y
-            and #$0f            ; fractional part only
+            and #FRAC_MASK
             tax
             lda deltadisty
             jsr mul_8x8_8f
             sta sidedisty
 
-            lda #-$10
+            lda #-1.0*FACTOR
             jmp exit
 
         do_pos_y:
             lda player_y
-            and #$0f            ; fractional part only
+            and #FRAC_MASK
             tax
             sec
-            lda #$10            ; 1.0
+            lda #1.0*FACTOR
             sbc identity_table, x
             tax
             lda deltadisty
             jsr mul_8x8_8fs
             sta sidedisty
 
-            lda #$10
+            lda #1.0*FACTOR
         exit:
             sta stepy
         .bend
@@ -438,11 +452,9 @@ render:
             ; check the map
 
             lda mx
-            lsr
-            lsr
-            lsr
-            lsr
+            shift lsr, INT_BITS
             ora my
+            shift lsr, FACTOR_BITS-MAP_BITS
             tay
             lda map_table, y
             beq loop
@@ -458,7 +470,7 @@ render:
             tay
 
             sec
-            lda #$10                ; 1.0
+            lda #1.0*FACTOR
             sbc stepx, x            ; 1-step
             lsr                     ; /2
             
@@ -501,7 +513,7 @@ render:
 
         exit:
             ldx #0
-            and #$08
+            and #1<<(FACTOR_BITS-1)
             bne +
             inx
         +
@@ -592,7 +604,7 @@ move_object:
 
         ; Grab mechanic: pressing SPACE lets you drag the object with you.
 
-        cmp #$10
+        cmp #1.0*FACTOR
         bcs +
         lda #8
         sta PIA1_PA
@@ -610,7 +622,7 @@ move_object:
         ; Close enough that the player's colliding with it?
 
         lda object_d
-        cmp #$08
+        cmp #0.5*FACTOR
         bcs nobump
 
         ; Normalise the collision vector in x1/y1.
@@ -646,7 +658,7 @@ move_object:
 
         cmp #$80
         ror
-        cmp #$f1
+        cmp #-0.9*FACTOR
         bcc nobump
         sta dotproduct
 
@@ -711,22 +723,22 @@ move_object:
         and #7
         bne noslow
 
-        ldx #1
+        ldx #0.1*FACTOR
         lda object_vx
         beq ++
         bmi +
-        ldx #-1
+        ldx #-0.1*FACTOR
     +
         clc
         adc identity_table, x
         sta object_vx
     +
 
-        ldx #1
+        ldx #0.1*FACTOR
         lda object_vy
         beq ++
         bmi +
-        ldx #-1
+        ldx #-0.1*FACTOR
     +
         clc
         adc identity_table, x
@@ -1060,12 +1072,13 @@ create_level:
         lda #$01
     -
         sta map_table, x
-        dex
+        inx
+        cpx #(MAP_ROW_SIZE*MAP_ROW_SIZE) & $ff
         bne -
 
         ; Now fill the area that the maze will occupy.
 
-        ldx #16+1
+        ldx #MAP_ROW_SIZE+1
 
         ldy level_size
         dey
@@ -1086,8 +1099,8 @@ create_level:
 
         txa                     ; advance to next row
         clc
-        and #$f0
-        adc #$11
+        and #MAP_ROW_MASK
+        adc #MAP_ROW_SIZE+1
         tax
 
         dec count
@@ -1095,7 +1108,7 @@ create_level:
         
         ; Initialise recursion.
 
-        ldy #16+1
+        ldy #MAP_ROW_SIZE+1
         sty co
         lda #$02                ; mark the starting point
         sta map_table, y
@@ -1156,9 +1169,12 @@ create_level:
         ; We've created a perfect maze with no loops; this is annoying and
         ; boring, so punch small holes in it.
 
-        ldy level_size
+        lda level_size
+        lsr
+        tay
     hole_loop:
-        jsr shuffled            ; fetch a random position
+        lda #(MAP_ROW_SIZE*MAP_ROW_SIZE) & $ff
+        jsr shuffled_limited    ; fetch a random position
         tax
         lda map_table, x        ; look for a clearable wall ($00)
         bne hole_loop
@@ -1214,13 +1230,15 @@ create_level:
         lda #1
     +
         sta map_table, x
-        dex
+        inx
+        cpx #(MAP_ROW_SIZE*MAP_ROW_SIZE) & $ff
         bne -
 
         rts
 
     find_hole:
-        jsr shuffled
+        lda #(MAP_ROW_SIZE*MAP_ROW_SIZE) & $ff
+        jsr shuffled_limited
         tax
         lda map_table, x
         cmp #2
@@ -1229,24 +1247,22 @@ create_level:
 
     convert:
         pha
-        and #$0f
-        asl
-        asl
-        asl
-        asl
-        ora #$08
+        and #MAP_COLUMN_MASK
+        shift asl, FACTOR_BITS
+        ora #1<<(FACTOR_BITS-1)
         tax
 
         pla
-        and #$f0
-        ora #$08
+        and #MAP_ROW_MASK
+        shift asl, FACTOR_BITS-MAP_BITS
+        ora #1<<(FACTOR_BITS-1)
         tay
         rts
 
     direction_table:
-        .char -16
+        .char -MAP_ROW_SIZE
         .char 1
-        .char 16
+        .char MAP_ROW_SIZE
         .char -1
 
         .section zp
@@ -1350,19 +1366,16 @@ square:
 mul_8x8_8f:
     .block
         jsr mul_8x8_16
-        sty lo
-        asl lo
-        rol
-        asl lo
-        rol
-        asl lo
-        rol
-        asl lo
-        rol
+        sta hi
+        tya
+        .rept FACTOR_BITS
+            lsr hi
+            ror
+        .next
         rts
 
         .section zp
-            lo: .byte ?
+            hi: .byte ?
         .send
     .bend
 
@@ -1391,15 +1404,11 @@ mul_8x8_8fs:
         sta hi
     +
 
-        ; hi already in A
-        asl lo
-        rol
-        asl lo
-        rol
-        asl lo
-        rol
-        asl lo
-        rol
+        lda lo
+        .rept FACTOR_BITS
+            lsr hi
+            ror
+        .next
         rts
 
         .section zp
@@ -1542,6 +1551,8 @@ shuffled_limited:
     .block
         clc
         adc #1
+        cmp #1
+        beq shuffled
         sta max
     -
         jsr shuffled
@@ -1622,10 +1633,10 @@ identity_table:
 
 height_table:
     .for i := 0, i < 256, i += 1
-        f := i / 16.0
+        f := i / FACTOR
         h := $ff
         .if i != 0
-            h := 10.0 * 1.0/f
+            h := 7.9 * 1.0/f
         .endif
         .if h < 1
             h := 1
@@ -1636,8 +1647,8 @@ height_table:
 inverse_table:
     .byte $ff
     .for i := 1, i < 256, i += 1
-        f := i / 16.0
-        .byte clamp(nround(16.0 / f), 0, 255.0)
+        f := i / FACTOR
+        .byte clamp(nround(FACTOR / f), 0, 255.0)
     .next
 
 atan_table:
@@ -1683,24 +1694,24 @@ log2_table:
         .byte clamp(nround(log(i)*32.0 / log(2)), 0, 255)
     .next
 
+inv_sincos_table:
+    .for i := 0, i < 256, i += 1
+        .char clamp(nround(FACTOR * div(1.0, sin(torad(i)))), -127, 127)
+    .next
+
 sin_table:
 cos_table = sin_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char clamp(nround(16.0 * sin(torad(i))), -127, 127)
+        .char clamp(nround(FACTOR * sin(torad(i))), -127, 127)
     .next
 
 dirx_table = cos_table
 diry_table = sin_table
 
-inv_sincos_table:
-    .for i := 0, i < 256, i += 1
-        .char clamp(nround(16.0 * div(1.0, sin(torad(i)))), -127, 127)
-    .next
-
 deltadisty_table:
 deltadistx_table = deltadisty_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char clamp(nround(16.0 * abs(div(1, sin(torad(i))))), -127, 127)
+        .char clamp(nround(FACTOR * abs(div(1, sin(torad(i))))), -127, 127)
     .next
 
 .section zp
@@ -1712,7 +1723,7 @@ zbuffer:
 backbuffer:
     .fill 1024, ?
 map_table:
-    .fill 16*16, ?
+    .fill MAP_ROW_SIZE*MAP_ROW_SIZE, ?
 
     * = 0
     .dsection zp
