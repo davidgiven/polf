@@ -75,33 +75,18 @@ _entry:
 
     lda #0
     sta level_seed
-    lda #8
+    lda #9
     sta level_size
     jsr create_level
-    jsr cls
-    jsr draw_level
-    jsr redraw
-    jmp *
 
     lda #$00
     sta player_h
-    lda #$80
-    sta player_x
-    lda #$90
-    sta player_y
     lda #0
     sta player_vx
     sta player_vy
     sta player_vh
     sta object_vx
     sta object_vy
-    lda #$80
-    sta object_x
-    lda #$80
-    sta object_y
-    lda #$20
-    sta hole_x
-    sta hole_y
 
 -
     dec ticks
@@ -1062,14 +1047,14 @@ moveplayer:
 
 ; --- Level creation --------------------------------------------------------
 
-; Creates a maze based on level_size and level_seed.
-; The state used in each cell is the offset of the parent. Offsets $00, $01 and
-; $02 are special, representing a visited (empty) block, a normal wall, and an
-; impassable wall respectively.
+; Creates a maze based on level_size and level_seed.  The state used in each
+; cell is the offset of the parent. Offsets $00, $01 and $02 are special,
+; representing a normal wall, an impassable wall, and an empty block
+; respectively.
 
 create_level:
     .block
-        ; Fill the maze.
+        ; Fill the maze with impassable walls.
 
         ldx #0
         lda #$01
@@ -1078,57 +1063,41 @@ create_level:
         dex
         bne -
 
-        ; Draw the top wall.
+        ; Now fill the area that the maze will occupy.
 
-        ldx level_size
-        lda #$02
-    -
-        sta map_table-1, x
-        dex
-        bne -
+        ldx #16+1
 
-        ; Draw the left and right walls.
-
-        ldx #0
         ldy level_size
         dey
-        sty sm1+1
-        iny
-    -
-        lda #$02
-        sta map_table, x
-    sm1 sta map_table, x
-        txa
-        clc
-        adc #$10
-        tax
         dey
-        bne -
+        sty count
 
-        ; Draw the bottom wall.
-
-        lda level_size
-        sec
-        sbc #1
-        asl
-        asl
-        asl
-        asl
-        tax
+        lda #$01
+    outer_loop:
         ldy level_size
-        lda #$02
-    -
+        dey
+        dey
+        lda #$00
+    inner_loop:
         sta map_table, x
         inx
         dey
-        bne -
-        rts
+        bne inner_loop
+
+        txa                     ; advance to next row
+        clc
+        and #$f0
+        adc #$11
+        tax
+
+        dec count
+        bne outer_loop
         
         ; Initialise recursion.
 
         ldy #16+1
         sty co
-        lda #0
+        lda #$02                ; mark the starting point
         sta map_table, y
         lda level_seed
         sta seed
@@ -1136,36 +1105,142 @@ create_level:
         ; Begin random walk.
 
     walk_loop:
-        jsr shuffled
-        and #3
+        jsr shuffled            ; pick a starting direction
         tay
-        lda #4
-        sta dir_count
+        lda #4                  ; number of iterations
+        sta count       
     dir_loop:
+        tya
+        and #$03
+        tay
         lda direction_table, y
         clc
         adc co
+        sta cop1                ; pos + 1
         tax
-        lda map_table, x
-        cmp #$ff
-        beq next_dir             ; don't pass through impassable walls
-
-        txa
         clc
         adc direction_table, y
-        tax
-        lda map_table, x
+        sta cop2                ; pos + 2
 
-    bad_dir:
-        
-        tax                     ; save direction in X
-        clc
-        adc co
+        lda map_table, x
+        cmp #$01
+        beq next_dir            ; don't pass through impassable walls
+
+        ldx cop2
+        lda map_table, x
+        bne next_dir            ; only go in directions we haven't been
+
+        lda co
+        sta map_table, x        ; mark new location and store breadcrumb
+
+        lda #$02
+        ldx cop1
+        sta map_table, x        ; clear intermediate wall
+
+        lda cop2
+        sta co                  ; move to new location
+
+        jmp walk_loop           ; start walking again
 
     next_dir:
+        iny                     ; can't go this direction, so try another
+        dec count
+        bne dir_loop            ; give up if we've done all directions
 
+        ldx co
+        lda map_table, x        ; fetch breadcrumb to previous location
+        sta co
+        cmp #$02
+        bne walk_loop           ; if we haven't reached the end, back up
 
+        ; We've created a perfect maze with no loops; this is annoying and
+        ; boring, so punch small holes in it.
 
+        ldy level_size
+    hole_loop:
+        jsr shuffled            ; fetch a random position
+        tax
+        lda map_table, x        ; look for a clearable wall ($00)
+        bne hole_loop
+
+        lda #$02
+        sta map_table, x
+        dey
+        bne hole_loop
+
+        ; Place the player, object and hole.
+
+        jsr find_hole
+        stx co                  ; player
+
+    -
+        jsr find_hole           ; object
+        cpx co
+        beq -
+        stx cop1
+
+    -
+        jsr find_hole           ; hole
+        cpx co
+        beq -
+        cpx cop1
+        beq -
+        stx cop2
+
+        lda co
+        jsr convert
+        stx player_x
+        sty player_y
+
+        lda cop1
+        jsr convert
+        stx object_x
+        sty object_y
+
+        lda cop2
+        jsr convert
+        stx hole_x
+        sty hole_y
+
+        ; We should now have a working maze. Go through and convert into the
+        ; form the actual game wants.
+
+        ldx #0
+    -
+        lda #0
+        ldy map_table, x
+        cpy #2                  ; < $02 is a wall
+        bcs +
+        lda #1
+    +
+        sta map_table, x
+        dex
+        bne -
+
+        rts
+
+    find_hole:
+        jsr shuffled
+        tax
+        lda map_table, x
+        cmp #2
+        bcc find_hole
+        rts
+
+    convert:
+        pha
+        and #$0f
+        asl
+        asl
+        asl
+        asl
+        ora #$08
+        tax
+
+        pla
+        and #$f0
+        ora #$08
+        tay
         rts
 
     direction_table:
@@ -1176,7 +1251,9 @@ create_level:
 
         .section zp
             co: .byte ?
-            dir_count: .byte ?
+            cop1: .byte ?
+            cop2: .byte ?
+            count: .byte ?
         .send
     .bend
 
@@ -1192,10 +1269,13 @@ draw_level:
         sta mptr+1
 
         ldx #16
+        stx row
     outer_loop:
         ldy #16
     inner_loop:
         lda (mptr), y
+        tax
+        lda map_char_table, x
         sta (sptr), y
         dey
         bne inner_loop
@@ -1216,11 +1296,16 @@ draw_level:
         inc mptr+1
     +
 
-        dex
+        dec row
         bne outer_loop
         rts
 
+    map_char_table:
+        .byte 32        ; space
+        .byte 102 ; $5f       ; fill
+
         .section zp
+            row:  .byte ?
             mptr: .word ?
             sptr: .word ?
         .send
@@ -1444,11 +1529,30 @@ shuffled:
         eor #$1d
     no_eor:
         sta seed
+        rts
     .bend
 
     .section zp
         seed: .byte ?
     .send
+
+; As above, but produces a number less than A. This is not good code.
+
+shuffled_limited:
+    .block
+        clc
+        adc #1
+        sta max
+    -
+        jsr shuffled
+        cmp max
+        bcs -
+        rts
+
+        .section zp
+            max: .byte ?
+        .send
+    .bend
 
 hex_table:
     .text "0123456789ABCDEF"
