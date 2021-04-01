@@ -1577,6 +1577,9 @@ div .function x, y
     .endif
     .endf n
 
+nround .function x
+    .endf trunc(x + 0.5)
+
 ; backbuffer row addresses.
 
 row_table_lo:
@@ -1634,7 +1637,7 @@ inverse_table:
     .byte $ff
     .for i := 1, i < 256, i += 1
         f := i / 16.0
-        .byte clamp(16.0 / f, 0, 255.0)
+        .byte clamp(nround(16.0 / f), 0, 255.0)
     .next
 
 atan_table:
@@ -1677,13 +1680,13 @@ atan_table:
 log2_table:
     .byte 0
     .for i := 1, i < 256, i += 1
-        .byte log(i)*32.0 / log(2)
+        .byte clamp(nround(log(i)*32.0 / log(2)), 0, 255)
     .next
 
 sin_table:
 cos_table = sin_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char 15.99 * sin(torad(i))
+        .char clamp(nround(16.0 * sin(torad(i))), -127, 127)
     .next
 
 dirx_table = cos_table
@@ -1691,13 +1694,13 @@ diry_table = sin_table
 
 inv_sincos_table:
     .for i := 0, i < 256, i += 1
-        .char 16.0 * clamp(div(1.0, sin(torad(i))), -7.99, 7.99)
+        .char clamp(nround(16.0 * div(1.0, sin(torad(i)))), -127, 127)
     .next
 
 deltadisty_table:
 deltadistx_table = deltadisty_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char 16.0 * clamp(abs(div(1, sin(torad(i)))), -7.99, 7.99)
+        .char clamp(nround(16.0 * abs(div(1, sin(torad(i))))), -127, 127)
     .next
 
 .section zp
