@@ -161,51 +161,99 @@ test_wall:
 
 draw_status:
     .block
-        lda #<backbuffer
-        sta ptr+0
-        lda #>backbuffer
-        sta ptr+1
+        ; Draw the compass line.
 
-        ldy #0
         lda player_h
-        jsr drawbyte
+        clc
+        adc #20
+        tax
+        ldy #40
 
-        iny
-        lda player_x
-        jsr drawbyte
+    -
+        lda compass_table, x
+        sta (backbuffer+22*40)-1, y
+        lda #$40
+        sta backbuffer-1, y
+        sta (backbuffer+21*40)-1, y
+        dex
+        dey
+        bne -
 
-        iny
-        lda player_y
-        jsr drawbyte
+        ; Draw the top and bottom borders.
 
-        iny
-        lda player_vx
-        jsr drawbyte
+        ldx #$4d
+        stx backbuffer+19
+        stx backbuffer+20+21*40
+        inx
+        stx backbuffer+20
+        stx backbuffer+19+21*40
 
-        iny
-        lda player_vy
-        jsr drawbyte
+        ; Draw the status labels.
 
-        iny
-        lda player_vh
-        jsr drawbyte
+        ldx #$fb
+    -
+        lda ball_string-$fb, x
+        sta backbuffer+0+24*40-$fb, x
+        lda hole_string-$fb, x
+        sta backbuffer+35+24*40-$fb, x
+        inx
+        bne -
 
-        iny
-        lda object_vx
-        jsr drawbyte
+        ; Draw the object distance meter.
 
-        iny
-        lda object_vy
-        jsr drawbyte
-
-        iny
-        lda object_dh
-        jsr drawbyte
-
-        iny
         lda object_d
-        jsr drawbyte
+        eor #$ff
+        lsr
+        lsr
+        lsr
+        lsr
+        sta ptr+0
+        ldx #0
+        lda #' ' | $80
+    -
+        sta backbuffer+5+24*40-1, x
+        inx
+        cpx ptr+0
+        bne -
 
+        lda object_d
+        eor #$ff
+        lsr
+        and #$07
+        tay
+        lda scale_table, y
+        sta backbuffer+5+24*40-1, x
+
+        ; Draw the hole distance meter.
+
+        lda hole_d
+        eor #$ff
+        lsr
+        lsr
+        lsr
+        lsr
+        tay
+        sta ptr+0
+        lda #16
+        sec
+        sbc ptr+0
+        sta ptr+0
+        tax
+        lda #' ' | $80
+    -
+        sta backbuffer+20+24*40, x
+        inx
+        dey
+        bne -
+
+        lda hole_d
+        lsr
+        and #$07
+        tay
+        ldx ptr+0
+        lda scale_table, y
+        eor #$80
+        sta backbuffer+19+24*40, x
         rts
 
     drawbyte:
@@ -280,7 +328,7 @@ vline:
         sta height
 
         sec
-        lda #24
+        lda #22
         sbc height
         lsr
         tay
@@ -1778,6 +1826,29 @@ inv_sincos_table:
     .for i := 0, i < 256, i += 1
         .byte clamp(nround(FACTOR * div(1.0, abs(sin(torad(i))))), 0, 255)
     .next
+
+compass_table:
+    .text 'E             ESE               SE             SSE              '
+    .text 'S             SSW               SW             WSW              '
+    .text 'W             WNW               NW             NNW              '
+    .text 'N             NNE               NE             NNE              '
+
+ball_string:
+    .byte 'B' | $80
+    .byte 'A' | $80
+    .byte 'L' | $80
+    .byte 'L' | $80
+    .byte ' ' | $80
+
+hole_string:
+    .byte ' ' | $80
+    .byte 'H' | $80
+    .byte 'O' | $80
+    .byte 'L' | $80
+    .byte 'E' | $80
+
+scale_table:
+    .byte $60, $65, $74, $75, $61, $f6, $ea, $e7, $e0
 
 sin_table:
 cos_table = sin_table + 64
