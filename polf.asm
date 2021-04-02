@@ -83,9 +83,27 @@ shift .macro insn, n
 ; --- Main program ----------------------------------------------------------
 
 _entry:
+    sei                         ; entire program runs with interrupts off
+
+    ; Title screen sequence.
+
+    lda #' ' | $80
+    jsr fill_screen
+    jsr redraw_slow
+
+    lda #14
+    sta VIA_PCR
+
+    jsr cls
+    jsr redraw_slow
+    jsr draw_title_screen
+    jsr redraw_slow
+    jsr spacebar
+    jsr cls
+    jsr redraw_slow
+
     lda #12
     sta VIA_PCR
-    sei
 
     ; Initialise.
 
@@ -153,6 +171,25 @@ test_wall:
         .section zp
             offset: .byte ?
         .send
+    .bend
+
+; Waits for the spacebar to be pressed.
+
+spacebar:
+    .block
+        lda #8
+        sta PIA1_PA
+    -
+        lda PIA1_PB
+        and #%00000100
+        beq -                   ; wait for release
+
+    -
+        lda PIA1_PB
+        and #%00000100
+        bne -                   ; wait for press
+
+        rts
     .bend
 
 ; --- Screen draw -----------------------------------------------------------
@@ -281,7 +318,7 @@ draw_status:
 
 redraw:
     .block
-    ; Wait for a vsync.
+        ; Wait for a vsync.
 
         lda VIA_PB
         and #%00100000
@@ -303,8 +340,69 @@ redraw:
         rts
     .bend
 
+redraw_slow:
+    .block
+
+    copy .macro
+        lda backbuffer+\1, x
+        sta SCREEN+\1, x
+        .endm
+
+        lda #0
+        sta count
+    loop:
+    -
+        lda VIA_PB
+        and #%00100000
+        bne -
+    -
+        lda VIA_PB
+        and #%00100000
+        beq -
+
+        ldy #16
+    -
+        jsr shuffled
+        tax
+        copy $000
+        copy $100
+        copy $200
+        copy $300
+        dec count
+        beq exit
+        dey
+        bne -
+        jmp loop
+    exit:
+        rts
+
+        .section zp
+            count: .byte ?
+        .send
+    .bend
+
+draw_title_screen:
+    .block
+
+    copy .macro
+        lda titlescreen_table+\1, x
+        sta backbuffer+\1, x
+        .endm
+
+        ldx #0
+    -
+        copy $000
+        copy $100
+        copy $200
+        copy $300
+        dex
+        bne -
+        rts
+    .bend
+
 cls:
     lda #32
+fill_screen:
     ldx #0
 -
     sta backbuffer+$000, x
@@ -1864,6 +1962,9 @@ deltadistx_table = deltadisty_table + 64
     .for i := 0, i < 256+64, i += 1
         .byte clamp(nround(FACTOR * abs(div(1, sin(torad(i))))), 0, 255)
     .next
+
+titlescreen_table:
+    .include "titlescreen.inc"
 
 .section zp
 zbuffer:
