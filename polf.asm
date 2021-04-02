@@ -104,6 +104,12 @@ _entry:
     sta object_vx
     sta object_vy
 
+    lda #$76
+    sta player_h
+    lda #$b0
+    sta player_x
+    lda #$29
+    sta player_y
 -
     dec ticks
 
@@ -382,7 +388,7 @@ render:
             sbc identity_table, x
             tax
             lda deltadistx
-            jsr mul_8x8_8fs
+            jsr mul_8x8_8f
             sta sidedistx
 
             lda #1.0*FACTOR
@@ -417,7 +423,7 @@ render:
             sbc identity_table, x
             tax
             lda deltadisty
-            jsr mul_8x8_8fs
+            jsr mul_8x8_8f
             sta sidedisty
 
             lda #1.0*FACTOR
@@ -442,7 +448,15 @@ render:
             clc
             lda sidedistx, x
             adc deltadistx, x
-            bcs overflow            ; too far, give up
+            bcc no_overflow
+
+            lda #$ff                ; deal with distance overflow
+            sta distance
+            ldx column
+            sta zbuffer, x
+            jmp draw
+        no_overflow:
+
             sta sidedistx, x
             clc
             lda mx, x
@@ -476,6 +490,9 @@ render:
             
             sec
             sbc identity_table, y   ; (1-step)/2 - (pos-map)
+            bpl +
+            eor #$ff                ; approximate absolute value
+        +
             tay
 
             lda sideoffset_table, x
@@ -485,7 +502,7 @@ render:
             lda inv_sincos_table, x
             tax
             tya
-            jsr mul_8x8_8fs         ; signed multiply
+            jsr mul_8x8_8fs
             sta distance
             ldx column
             sta zbuffer, x
@@ -534,14 +551,6 @@ render:
 
         jmp column_loop
 
-    ; Looking diagonally across a 16x16 grid produces a distance which is too
-    ; big to fit into our number representation, so we just give up.
-
-    overflow:
-        lda #$ff
-        ldx column
-        sta zbuffer, x
-        jmp draw
 
         .section zp
             column:     .byte ?
@@ -1419,6 +1428,77 @@ mul_8x8_8fs:
         .send
     .bend
 
+; 8x8 unsigned divide.
+; Computes A = A/X.
+
+div_8x8_8:
+    .block
+        lda #$00
+        ldx #$07
+        clc
+    -
+        rol num
+        rol
+        cmp denom
+        bcc +
+        sbc denom
+    +
+        dex
+        bpl -
+        lda num
+        rol
+        rts
+
+        .section zp
+            num: .byte ?
+            denom: .byte ?
+        .send
+    .bend
+
+; 8x8 signed divide.
+; Computs A = A/X.
+
+div_8x8_8s:
+    .block
+        sta lhs
+        stx rhs
+        eor rhs                 ; discover sign of result
+
+        bit lhs
+        bpl +
+        sec
+        lda #0
+        sbc lhs
+        sta lhs
+    +
+
+        bit rhs
+        bpl +
+        sec
+        lda #0
+        sbc rhs
+        sta rhs
+    +
+
+        lda lhs
+        ldx rhs
+        jsr div_8x8_8
+
+        bit rsign
+        bpl +
+        sta rsign
+        sec
+        lda #0
+        sbc rsign
+    +
+        rts
+
+        .section zp
+            lhs: .byte ?
+            rhs: .byte ?
+            rsign: .byte ?
+        .send
+    .bend
 ; Super-fast arctan2 code without division (!), taken from here:
 ; https://codebase64.org/doku.php?id=base:8bit_atan2_8-bit_angle
 ;
@@ -1696,7 +1776,7 @@ log2_table:
 
 inv_sincos_table:
     .for i := 0, i < 256, i += 1
-        .char clamp(nround(FACTOR * div(1.0, sin(torad(i)))), -127, 127)
+        .byte clamp(nround(FACTOR * div(1.0, abs(sin(torad(i))))), 0, 255)
     .next
 
 sin_table:
@@ -1711,7 +1791,7 @@ diry_table = sin_table
 deltadisty_table:
 deltadistx_table = deltadisty_table + 64
     .for i := 0, i < 256+64, i += 1
-        .char clamp(nround(FACTOR * abs(div(1, sin(torad(i))))), -127, 127)
+        .byte clamp(nround(FACTOR * abs(div(1, sin(torad(i))))), 0, 255)
     .next
 
 .section zp
