@@ -121,13 +121,6 @@ _entry:
     sta player_vh
     sta object_vx
     sta object_vy
-
-    lda #$76
-    sta player_h
-    lda #$b0
-    sta player_x
-    lda #$29
-    sta player_y
 -
     dec ticks
 
@@ -506,6 +499,9 @@ render:
         sta deltadistx
         lda deltadisty_table, x
         sta deltadisty
+        lda #0
+        sta sidedistx_hi
+        sta sidedisty_hi
 
         ; sidedistx
 
@@ -519,8 +515,11 @@ render:
             and #FRAC_MASK
             tax
             lda deltadistx
+            cmp #$ff
+            beq +                   ; work around division by zero case
             jsr mul_8x8_8f
-            sta sidedistx
+        +
+            sta sidedistx_lo
 
             lda #-1.0*FACTOR
             jmp exit
@@ -534,8 +533,11 @@ render:
             sbc identity_table, x
             tax
             lda deltadistx
+            cmp #$ff
+            beq +                   ; work around division by zero case
             jsr mul_8x8_8f
-            sta sidedistx
+        +
+            sta sidedistx_lo
 
             lda #1.0*FACTOR
         exit:
@@ -553,9 +555,12 @@ render:
             lda player_y
             and #FRAC_MASK
             tax
+            cmp #$ff
             lda deltadisty
+            beq +                   ; work around division by zero case
             jsr mul_8x8_8f
-            sta sidedisty
+        +
+            sta sidedisty_lo
 
             lda #-1.0*FACTOR
             jmp exit
@@ -569,8 +574,11 @@ render:
             sbc identity_table, x
             tax
             lda deltadisty
+            cmp #$ff
+            beq +                   ; work around division by zero case
             jsr mul_8x8_8f
-            sta sidedisty
+        +
+            sta sidedisty_lo
 
             lda #1.0*FACTOR
         exit:
@@ -583,27 +591,28 @@ render:
         loop:
             ; set side; 0 for x, 1 for y
 
-            lda sidedistx
-            cmp sidedisty
-            lda #0
-            rol
-            tax
+            ldx #1
+            lda sidedistx_hi
+            cmp sidedisty_hi
+            bcc is_side_x
+            bne is_side_y
+            lda sidedistx_lo
+            cmp sidedisty_lo
+            bcs is_side_y
+        is_side_x:
+            dex
+        is_side_y:
 
             ; do one DDA step
 
             clc
-            lda sidedistx, x
+            lda sidedistx_lo, x
             adc deltadistx, x
-            bcc no_overflow
+            sta sidedistx_lo, x
+            bcc +
+            inc sidedistx_hi, x
+        +
 
-            lda #$ff                ; deal with distance overflow
-            sta distance
-            ldx column
-            sta zbuffer, x
-            jmp draw
-        no_overflow:
-
-            sta sidedistx, x
             clc
             lda mx, x
             adc stepx, x
@@ -639,25 +648,28 @@ render:
             bpl +
             eor #$ff                ; approximate absolute value
         +
-            tay
+            sta x1+0
 
             lda sideoffset_table, x
             clc
             adc raydir
-            tax
-            lda inv_sincos_table, x
-            tax
-            tya
-            jsr mul_8x8_8fs
-            sta distance
-            ldx column
-            sta zbuffer, x
+            tay
+            ldx inv_sincos_table_lo, y
+            lda inv_sincos_table_hi, y
+            ldy x1+0
+            jsr mul_8x16_24
+            tay                     ; set flags
+            beq +
+            ldx #$80                ; overflow
+        +
+            stx distance
+            ldy column
+            stx zbuffer, y
         .bend
 
         ; Compute the 'texture' coordinate.
 
         .block
-            tax
             ldy raydir
             lda side
             bne side_y
@@ -699,19 +711,21 @@ render:
 
 
         .section zp
-            column:     .byte ?
-            raydir:     .byte ?
-            mx:         .byte ?
-            my:         .byte ?
-            deltadistx: .byte ?
-            deltadisty: .byte ?
-            sidedistx:  .byte ?
-            sidedisty:  .byte ?
-            stepx:      .byte ?
-            stepy:      .byte ?
-            side:       .byte ?
-            distance:   .byte ?
-            texx:       .byte ?
+            column:       .byte ?
+            raydir:       .byte ?
+            mx:           .byte ?
+            my:           .byte ?
+            deltadistx:   .byte ?
+            deltadisty:   .byte ?
+            sidedistx_lo: .byte ?
+            sidedisty_lo: .byte ?
+            sidedistx_hi: .byte ?
+            sidedisty_hi: .byte ?
+            stepx:        .byte ?
+            stepy:        .byte ?
+            side:         .byte ?
+            distance:     .byte ?
+            texx:         .byte ?
         .send
 
         textures_table:
@@ -1506,6 +1520,41 @@ sm3 lda square1_hi, x
 sm4 sbc square2_hi, x
     rts
 
+; Computes AXY = AX*Y, unsigned.
+;    P1 P0 +
+;       Q0
+;    -----
+;    P0*Q0 +
+; P1*Q0    +
+mul_8x16_24:
+    .block
+        sta p+1
+        stx p+0
+
+        tya
+        ldx p+0
+        jsr mul_8x8_16
+        sta r+1
+        sty r+0
+
+        ldx p+1
+        jsr mul_8x8_again
+        sta r+2
+        tya
+        clc
+        adc r+1
+        tax
+        lda r+2
+        adc #0
+        ldy r+0
+        rts
+        
+        .section zp
+            p: .word ?
+            r: .fill 3, ?
+        .send
+    .bend
+
 ; Computes AY = A, unsigned.
 square:
     .block
@@ -1920,9 +1969,17 @@ log2_table:
         .byte clamp(nround(log(i)*32.0 / log(2)), 0, 255)
     .next
 
-inv_sincos_table:
+inv_sincos_table_fn .function i
+    .endf clamp(256.0 * div(1.0, abs(sin(torad(i)))), 0, 65535)
+
+inv_sincos_table_lo:
     .for i := 0, i < 256, i += 1
-        .byte clamp(nround(FACTOR * div(1.0, abs(sin(torad(i))))), 0, 255)
+        .byte <inv_sincos_table_fn(i)
+    .next
+
+inv_sincos_table_hi:
+    .for i := 0, i < 256, i += 1
+        .byte >inv_sincos_table_fn(i)
     .next
 
 compass_table:
