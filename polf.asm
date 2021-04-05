@@ -67,6 +67,9 @@ shift .macro insn, n
 
     level_size: .byte ?
     level_seed: .byte ?
+
+    space:      .byte ?
+    push:       .byte ?
 .send
 
 ; --- Header ----------------------------------------------------------------
@@ -96,6 +99,7 @@ _entry:
 
     jsr cls
     jsr redraw_slow
+    jsr redraw_slow
     jsr draw_title_screen
     jsr redraw_slow
     jsr spacebar
@@ -121,6 +125,8 @@ _entry:
     sta player_vh
     sta object_vx
     sta object_vy
+    sta push
+    sta space
 -
     dec ticks
 
@@ -353,7 +359,7 @@ redraw_slow:
         and #%00100000
         beq -
 
-        ldy #16
+        ldy #10
     -
         jsr shuffled
         tax
@@ -730,9 +736,9 @@ render:
 
         textures_table:
             .byte 32+128
-            .byte 92+128
             .byte 102
-            .byte 92
+            .byte 32+128
+            .byte 102
 
         sideoffset_table:
             .byte $40
@@ -771,28 +777,17 @@ move_object:
         jsr sqrt16
         sta object_d            ; real distance
 
-        ; Grab mechanic: pressing SPACE lets you drag the object with you.
+        ; Close enough to be able to push the object?
 
         cmp #1.0*FACTOR
-        bcs +
-        lda #8
-        sta PIA1_PA
-        lda PIA1_PB
-        and #%00000100
-        bne +
-
-        lda player_vx
-        sta object_vx
-        lda player_vy
-        sta object_vy
-        jmp nobump
-    +
-
-        ; Close enough that the player's colliding with it?
-
-        lda object_d
-        cmp #0.5*FACTOR
         bcs nobump
+
+        ; Player pressed the spacebar?
+
+        lda push
+        beq nobump
+        lda #0
+        sta push
 
         ; Normalise the collision vector in x1/y1.
 
@@ -808,50 +803,21 @@ move_object:
         jsr mul_8x8_8f
         sta y1
 
-        ; Calculate dot product of player velocity vector with the collision vector.
+        ; Set the push scale to something sensible.
 
-        lda x1
-        ldx player_vx
-        jsr mul_8x8_8fs
+        lda #-0.1*FACTOR
         sta dotproduct
 
-        lda y1
-        ldx player_vy
-        jsr mul_8x8_8fs
-        clc
-        adc dotproduct
-        sta dotproduct
-        bpl nobump              ; don't push if object is departing
-
-        ; Scale the dot product to something sensible.
-
-        cmp #$80
-        ror
-        cmp #-0.9*FACTOR
-        bcc nobump
-        sta dotproduct
-
-        ; Now scale the collision vector and apply to the object velocity
-        ; vector.
+        ; Now scale the collision vector and set the object velocity vector.
 
         ldx x1
         jsr mul_8x8_8fs
-        clc
-        adc object_vx
         sta object_vx
 
         lda dotproduct
         ldx y1
         jsr mul_8x8_8fs
-        clc
-        adc object_vy
         sta object_vy
-
-        ; As an optimisation, just stop the player dead.
-
-        lda #0
-        sta player_vx
-        sta player_vy
 
     nobump:
 
@@ -867,8 +833,9 @@ move_object:
         jsr test_wall
         beq +
         sty object_x            ; if collision, bounce in X axis
-        lda object_vx
-        eor #$ff
+        sec
+        lda #0
+        sbc object_vx
         sta object_vx
     +
 
@@ -881,8 +848,9 @@ move_object:
         jsr test_wall
         beq +
         sty object_y            ; if collision, bounce in Y axis
-        lda object_vy
-        eor #$ff
+        sec
+        lda #0
+        sbc object_vy
         sta object_vy
     +
 
@@ -1184,7 +1152,7 @@ moveplayer:
 
         sec                         ; comma pressed
         lda player_vh
-        sbc #$03
+        sbc #$04
         sta player_vh
     +
 
@@ -1196,8 +1164,23 @@ moveplayer:
 
         clc                         ; dot pressed
         lda player_vh
-        adc #$03
+        adc #$04
         sta player_vh
+    +
+
+        lda #8
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00000100
+        cmp space                   ; compare with old state
+        beq +                       ; changed?
+
+        sta space                   ; save new state
+        tax                         ; set flags
+        bne +                       ; pressed?
+
+        lda #1                      ; trigger push
+        sta push
     +
         rts
 
