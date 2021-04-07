@@ -30,8 +30,6 @@ MAP_COLUMN_MASK = ~MAP_ROW_MASK
 
 SCREEN = $8000
 
-ACCELERATION = $08
-
 shift .macro insn, n
     .rept \n
         \insn
@@ -780,46 +778,47 @@ move_object:
         ; Close enough to be able to push the object?
 
         cmp #1.0*FACTOR
-        bcs nobump
+        bcs nopush
 
         ; Player pressed the spacebar?
 
         lda push
-        beq nobump
+        beq nopush
         lda #0
         sta push
+
+        ; Ideally we want to pretend the player is pushing a pool cue straight
+        ; out in front of them, which hits the object and moves it. However,
+        ; the maths to do this turns out to be surprisingly complicated, so
+        ; instead we're going to push the object directly away from the player.
 
         ; Normalise the collision vector in x1/y1.
 
         ldx object_d
         lda inverse_table, x
         ldx x1
-        jsr mul_8x8_8f
+        jsr mul_8x8_8fs
         sta x1
 
         ldx object_d
         lda inverse_table, x
         ldx y1
-        jsr mul_8x8_8f
+        jsr mul_8x8_8fs
         sta y1
 
-        ; Set the push scale to something sensible.
+        ; Scale, and set the object velocity vector.
 
         lda #-0.1*FACTOR
-        sta dotproduct
-
-        ; Now scale the collision vector and set the object velocity vector.
-
         ldx x1
         jsr mul_8x8_8fs
         sta object_vx
 
-        lda dotproduct
+        lda #-0.1*FACTOR
         ldx y1
         jsr mul_8x8_8fs
         sta object_vy
 
-    nobump:
+    nopush:
 
         ; Apply motion (will take effect next frame).
 
@@ -857,30 +856,29 @@ move_object:
         ; Diminish the object's velocity.
 
         lda ticks
-        and #7
+        and #15
         bne noslow
 
-        ldx #0.1*FACTOR
+    diminish_vx:
         lda object_vx
-        beq ++
+        beq diminish_vy
         bmi +
-        ldx #-0.1*FACTOR
-    +
-        clc
-        adc identity_table, x
-        sta object_vx
-    +
 
-        ldx #0.1*FACTOR
+        dec object_vx
+        jmp diminish_vy
+    +
+        inc object_vy
+    diminish_vy:
         lda object_vy
-        beq ++
+        bne +
+        rts
+    +
         bmi +
-        ldx #-0.1*FACTOR
+
+        dec object_vy
+        rts
     +
-        clc
-        adc identity_table, x
-        sta object_vy
-    +
+        inc object_vy
     noslow:
         rts
 
