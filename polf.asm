@@ -64,7 +64,7 @@ shift .macro insn, n
     y2:         .byte ?
 
     level_size: .byte ?
-    level_seed: .byte ?
+    level:      .byte ?
 
     space:      .byte ?
     push:       .byte ?
@@ -101,16 +101,26 @@ _entry:
     jsr draw_title_screen
     jsr redraw_slow
     jsr spacebar
-    jsr cls
-    jsr redraw_slow
 
     ; Initialise.
 
     lda #0
-    sta level_seed
+    sta level
     lda #8
     sta level_size
+
+next_level:
+    jsr cls
+    jsr redraw_slow
+    jsr draw_level_banner
+    jsr redraw
     jsr create_level
+    jsr draw_level
+    jsr redraw
+    jsr spacebar
+    jsr cls
+    jsr redraw
+    jsr redraw_slow
 
     lda #$80
     sta player_h
@@ -129,12 +139,24 @@ _entry:
     ;sta player_y
     ;lda #$bd
     ;sta player_h
+    
+    jsr render
+    jsr draw_moving_objects
+    jsr draw_status
+    jsr redraw_slow
+
 -
     dec ticks
 
     jsr cls
     jsr moveplayer
     jsr render
+    jsr draw_moving_objects
+    jsr draw_status
+    jsr redraw
+    jmp -
+
+draw_moving_objects:
     jsr move_object
     jsr move_hole
 
@@ -142,16 +164,10 @@ _entry:
     cmp hole_d
     bcs +
     jsr draw_object
-    jsr draw_hole
-    jmp ++
+    jmp draw_hole
 +
     jsr draw_hole
-    jsr draw_object
-+
-
-    jsr draw_status
-    jsr redraw
-    jmp -
+    jmp draw_object
 
 ; Tests to see if (X, A) is on a wall. Preserves Y. Returns Z or !Z.
 
@@ -295,28 +311,30 @@ draw_status:
         eor #$80
         sta backbuffer+19+24*40, x
         rts
-
-    drawbyte:
-        pha
-        lsr
-        lsr
-        lsr
-        lsr
-        jsr drawnibble
-        pla
-        ; fall through
-    drawnibble:
-        and #$0f
-        tax
-        lda hex_table, x
-        sta (ptr), y
-        iny
-        rts
-
-        .section zp
-            ptr: .word ?
-        .send
     .bend
+
+drawbyte:
+    pha
+    lsr
+    lsr
+    lsr
+    lsr
+    jsr drawnibble
+    pla
+    ; fall through
+drawnibble:
+    and #$0f
+    tax
+    lda hex_table, x
+    ora (ptr), y
+    sta (ptr), y
+    iny
+    rts
+
+    .section zp
+        ptr: .word ?
+    .send
+
 ; The backbuffer is copied onto the screen.
 
 redraw:
@@ -1284,7 +1302,7 @@ moveplayer:
 
 ; --- Level creation --------------------------------------------------------
 
-; Creates a maze based on level_size and level_seed.  The state used in each
+; Creates a maze based on level_size and level. The state used in each
 ; cell is the offset of the parent. Offsets $00, $01 and $02 are special,
 ; representing a normal wall, an impassable wall, and an empty block
 ; respectively.
@@ -1337,7 +1355,7 @@ create_level:
         sty co
         lda #$02                ; mark the starting point
         sta map_table, y
-        lda level_seed
+        lda level
         sta seed
 
         ; Begin random walk.
@@ -1500,19 +1518,20 @@ create_level:
 
 draw_level:
     .block
-        lda #<(backbuffer-1)
+        draw_address = backbuffer+10*40+16-1
+        lda #<draw_address
         sta sptr+0
-        lda #>(backbuffer-1)
+        lda #>draw_address
         sta sptr+1
         lda #<(map_table-1)
         sta mptr+0
         lda #>(map_table-1)
         sta mptr+1
 
-        ldx #16
+        ldx #MAP_ROW_SIZE
         stx row
     outer_loop:
-        ldy #16
+        ldy #MAP_ROW_SIZE
     inner_loop:
         lda (mptr), y
         tax
@@ -1531,7 +1550,7 @@ draw_level:
 
         clc
         lda mptr+0
-        adc #16
+        adc #MAP_ROW_SIZE
         sta mptr+0
         bcc +
         inc mptr+1
@@ -1550,6 +1569,31 @@ draw_level:
             mptr: .word ?
             sptr: .word ?
         .send
+    .bend
+
+draw_level_banner:
+    .block
+        title_address = backbuffer + (2*40) + 20 - (world_string_size/2)
+        level_address = title_address + (1*40) + 2
+
+        ldx #world_string_size-1
+    -
+        lda #128+32
+        sta title_address+0*40, x
+        sta title_address+2*40, x
+        lda world_string, x
+        sta title_address+1*40, x
+        dex
+        bpl -
+
+        lda #<level_address
+        sta ptr+0
+        lda #>level_address
+        sta ptr+1
+        lda level
+        jsr bintobcd
+        jsr drawbyte
+        rts
     .bend
 
 ; --- Maths -----------------------------------------------------------------
@@ -1896,6 +1940,20 @@ shuffled_limited:
         .send
     .bend
 
+; Slow and horrible routine to convert binary to BCD.
+
+bintobcd:
+    tax
+    lda #$99
+    sed
+-
+    clc
+    adc #1
+    dex
+    bpl -
+    cld
+    rts
+
 hex_table:
     .text "0123456789ABCDEF"
 
@@ -2057,6 +2115,19 @@ hole_string:
     .byte 'o' | $80
     .byte 'l' | $80
     .byte 'e' | $80
+
+world_string:
+    .byte ' ' | $80
+    .byte 'w' | $80
+    .byte 'o' | $80
+    .byte 'r' | $80
+    .byte 'l' | $80
+    .byte 'd' | $80
+    .byte ' ' | $80
+    .byte       $80
+    .byte       $80
+    .byte ' ' | $80
+world_string_size = * - world_string
 
 scale_table:
     .byte $60, $65, $74, $75, $61, $f6, $ea, $e7, $e0
