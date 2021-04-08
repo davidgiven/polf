@@ -104,9 +104,6 @@ _entry:
     jsr cls
     jsr redraw_slow
 
-    lda #12
-    sta VIA_PCR
-
     ; Initialise.
 
     lda #0
@@ -115,7 +112,7 @@ _entry:
     sta level_size
     jsr create_level
 
-    lda #$00
+    lda #$80
     sta player_h
     lda #0
     sta player_vx
@@ -125,6 +122,13 @@ _entry:
     sta object_vy
     sta push
     sta space
+
+    ;lda #$36
+    ;sta player_x
+    ;lda #$bf
+    ;sta player_y
+    ;lda #$bd
+    ;sta player_h
 -
     dec ticks
 
@@ -215,12 +219,14 @@ draw_status:
 
         ; Draw the top and bottom borders.
 
-        ldx #$4d
+        ldx #110
         stx backbuffer+19
-        stx backbuffer+20+21*40
-        inx
+        ldx #112
         stx backbuffer+20
+        ldx #125
         stx backbuffer+19+21*40
+        ldx #109
+        stx backbuffer+20+21*40
 
         ; Draw the status labels.
 
@@ -899,41 +905,104 @@ draw_object:
         sbc player_h
         clc
         adc #20
-        sta column
+        sta centre
+
+        ; Set up Bresenham's circle algorithm.
 
         ldx object_d
-        lda height_table, x     ; height of object
-        sta width
-        sta height
+        ldy height_table, x     ; diameter of object
 
-        lsr                     ; half the size
-        tax
         sec
-        lda column
-        sbc identity_table, x   ; adjust column to LHS of sprite
-
-    loop:
-        ldx column
-        cpx #40
-        bcs invisible
-        lda object_d
-        cmp zbuffer, x          ; check zbuffer to see if this is drawable
-        bcs invisible
-        sta zbuffer, x          ; update zbuffer
+        lda #3
+        sbc identity_table, y
+        sta cd
 
         lda #0
-        ldy height
-        jsr vline
+        sta cx
 
-    invisible:
-        inc column
-        dec width
-        bne loop
+        tya
+        lsr
+        sty cy
 
+        ; Draw the centre column.
+
+        lda centre
+        jsr do_draw
+
+    loop:
+        lda cx
+        cmp cy
+        bcs exit
+
+        inc cx
+
+        lda cd
+        bmi d_neg
+    d_pos:
+        dec cy                  ; cy -= 1
+        sec                     ; cd += 4*(x-y) + 10
+        lda cx
+        sbc cy
+        asl
+        asl
+        clc
+        adc cd
+        clc
+        adc #10
+        sta cd
+        jmp draw
+    d_neg:
+        lda cx                  ; cd += 4*x + 6
+        asl
+        asl
+        clc
+        adc cd
+        clc
+        adc #6
+        sta cd
+    draw:
+        ; Near RHS
+
+        clc
+        lda centre
+        adc cx
+        jsr do_draw
+
+        ; Near LHS
+
+        sec
+        lda centre
+        sbc cx
+        jsr do_draw
+
+        jmp loop
+
+    do_draw:
+        cmp #40
+        bcs exit
+        tax
+
+        lda object_d
+        cmp zbuffer, x          ; check zbuffer to see if this is drawable
+        bcc noexit
+    exit:
         rts
+    noexit:
+        lda object_d
+        sta zbuffer, x          ; update zbuffer
 
+        lda cy
+        ora #1
+        tay
+
+        lda #94
+        jmp vline
+        
         .section zp
-            column: .byte ?
+            cx: .byte ?
+            cy: .byte ?
+            cd: .byte ?
+            centre: .byte ?
             width: .byte ?
             height: .byte ?
         .send
@@ -1011,7 +1080,13 @@ draw_hole:
         bcs invisible
         sta zbuffer, x          ; update zbuffer
 
-        lda #1
+        lda ticks
+        and #1
+        beq +
+        lda #10
+    +
+        clc
+        adc #95
         ldy height
         jsr vline
 
@@ -1964,24 +2039,24 @@ inv_sincos_table_hi:
     .next
 
 compass_table:
-    .text 'E             ESE               SE             SSE              '
-    .text 'S             SSW               SW             WSW              '
-    .text 'W             WNW               NW             NNW              '
-    .text 'N             NNE               NE             NNE              '
+    .text 'e             ese               se             sse              '
+    .text 's             ssw               sw             wsw              '
+    .text 'w             wnw               nw             nnw              '
+    .text 'n             nne               ne             nne              '
 
 ball_string:
-    .byte 'B' | $80
-    .byte 'A' | $80
-    .byte 'L' | $80
-    .byte 'L' | $80
+    .byte 'b' | $80
+    .byte 'a' | $80
+    .byte 'l' | $80
+    .byte 'l' | $80
     .byte ' ' | $80
 
 hole_string:
     .byte ' ' | $80
-    .byte 'H' | $80
-    .byte 'O' | $80
-    .byte 'L' | $80
-    .byte 'E' | $80
+    .byte 'h' | $80
+    .byte 'o' | $80
+    .byte 'l' | $80
+    .byte 'e' | $80
 
 scale_table:
     .byte $60, $65, $74, $75, $61, $f6, $ea, $e7, $e0
