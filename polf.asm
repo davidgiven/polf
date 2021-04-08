@@ -65,6 +65,7 @@ shift .macro insn, n
 
     level_size: .byte ?
     level:      .byte ?
+    level_complete: .byte ?
 
     space:      .byte ?
     push:       .byte ?
@@ -109,15 +110,20 @@ _entry:
     lda #8
     sta level_size
 
-next_level:
+level_loop:
     jsr cls
     jsr redraw_slow
+-
+    jsr cls
     jsr draw_level_banner
     jsr redraw
     jsr create_level
     jsr draw_level
+    jsr draw_spacebar_prompt
     jsr redraw
-    jsr spacebar
+    jsr select_level
+    bcs -
+
     jsr cls
     jsr redraw
     jsr redraw_slow
@@ -132,6 +138,7 @@ next_level:
     sta object_vy
     sta push
     sta space
+    sta level_complete
 
     ;lda #$36
     ;sta player_x
@@ -154,7 +161,12 @@ next_level:
     jsr draw_moving_objects
     jsr draw_status
     jsr redraw
-    jmp -
+
+    lda level_complete
+    beq -
+
+    jsr next_level
+    jmp level_loop
 
 draw_moving_objects:
     jsr move_object
@@ -208,6 +220,12 @@ spacebar:
 
         rts
     .bend
+
+wait_for_release:
+    lda PIA1_PB
+    cmp #$ff
+    bne wait_for_release
+    rts
 
 ; --- Screen draw -----------------------------------------------------------
 
@@ -335,6 +353,21 @@ drawnibble:
         ptr: .word ?
     .send
 
+draw_spacebar_prompt:
+    .block
+        address = backbuffer + 20*40 + 20 - (spacebar_string_size/2)
+
+        ldx #spacebar_string_size-1
+    -
+        lda #' ' | $80
+        sta address+0*40, x
+        sta address+2*40, x
+        lda spacebar_string, x
+        sta address+1*40, x
+        dex
+        bpl -
+        rts
+    .bend
 ; The backbuffer is copied onto the screen.
 
 redraw:
@@ -894,9 +927,7 @@ move_object:
         inc object_vy
     diminish_vy:
         lda object_vy
-        bne +
-        rts
-    +
+        beq noslow
         bmi +
 
         dec object_vy
@@ -1058,6 +1089,31 @@ move_hole:
         jsr sqrt16
         sta hole_d            ; real distance
 
+        ; Calculate real distance from hole to object.
+
+        sec
+        lda object_x
+        sbc hole_x
+        bpl +
+        eor #$ff                ; approximate negation negation
+    +
+        jsr square
+        sta distance+0
+
+        sec
+        lda object_y
+        sbc hole_y
+        bpl +
+        eor #$ff
+    +
+        jsr square
+        clc
+        adc distance+0
+        beq +
+        lda #1
+    +
+        eor #1
+        sta level_complete
         rts
 
         .section zp
@@ -1518,11 +1574,11 @@ create_level:
 
 draw_level:
     .block
-        draw_address = backbuffer+10*40+16-1
+        draw_address = backbuffer+8*40+16-1
         lda #<draw_address
-        sta sptr+0
+        sta ptr+0
         lda #>draw_address
-        sta sptr+1
+        sta ptr+1
         lda #<(map_table-1)
         sta mptr+0
         lda #>(map_table-1)
@@ -1536,16 +1592,16 @@ draw_level:
         lda (mptr), y
         tax
         lda map_char_table, x
-        sta (sptr), y
+        sta (ptr), y
         dey
         bne inner_loop
 
         clc
-        lda sptr+0
+        lda ptr+0
         adc #40
-        sta sptr+0
+        sta ptr+0
         bcc +
-        inc sptr+1
+        inc ptr+1
     +
 
         clc
@@ -1567,14 +1623,13 @@ draw_level:
         .section zp
             row:  .byte ?
             mptr: .word ?
-            sptr: .word ?
         .send
     .bend
 
 draw_level_banner:
     .block
         title_address = backbuffer + (2*40) + 20 - (world_string_size/2)
-        level_address = title_address + (1*40) + 2
+        level_address = title_address + (1*40) + world_string_size - 3
 
         ldx #world_string_size-1
     -
@@ -1592,9 +1647,66 @@ draw_level_banner:
         sta ptr+1
         lda level
         jsr bintobcd
+        ldy #0
         jsr drawbyte
         rts
     .bend
+
+; Waits for A, D or SPACE, and adjusts the level number based on A.
+; Returns with the carry clear if SPACE was pressed.
+
+select_level:
+    .block
+    -
+        lda #3
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00000011
+        cmp #%00000011
+        bne change_level        ; A or D pressed
+
+        lda #8
+        sta PIA1_PA
+        lda PIA1_PB
+        and #%00000100
+        bne -
+
+        jsr wait_for_release
+        clc
+        rts
+
+    change_level:
+        and #%00000010
+        beq +
+        jsr prev_level
+        jsr wait_for_release
+        sec
+        rts
+    +
+        jsr next_level
+        jsr wait_for_release
+        sec
+        rts
+    .bend
+
+prev_level:
+    dec level
+    bpl +
+    lda #99
+    sta level
++
+    rts
+
+next_level:
+    lda level
+    clc
+    adc #1
+    cmp #100
+    bne +
+    lda #0
++
+    sta level
+    rts
 
 ; --- Maths -----------------------------------------------------------------
 
@@ -2128,6 +2240,31 @@ world_string:
     .byte       $80
     .byte ' ' | $80
 world_string_size = * - world_string
+
+spacebar_string:
+    .byte ' ' | $80
+    .byte 'p' | $80
+    .byte 'R' | $80
+    .byte 'E' | $80
+    .byte 'S' | $80
+    .byte 'S' | $80
+    .byte ' ' | $80
+    .byte 's' | $80
+    .byte 'p' | $80
+    .byte 'a' | $80
+    .byte 'c' | $80
+    .byte 'e' | $80
+    .byte ' ' | $80
+    .byte 'T' | $80
+    .byte 'O' | $80
+    .byte ' ' | $80
+    .byte 'S' | $80
+    .byte 'T' | $80
+    .byte 'A' | $80
+    .byte 'R' | $80
+    .byte 'T' | $80
+    .byte ' ' | $80
+spacebar_string_size = * - spacebar_string
 
 scale_table:
     .byte $60, $65, $74, $75, $61, $f6, $ea, $e7, $e0
