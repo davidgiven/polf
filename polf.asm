@@ -924,7 +924,7 @@ move_object:
         dec object_vx
         jmp diminish_vy
     +
-        inc object_vy
+        inc object_vx
     diminish_vy:
         lda object_vy
         beq noslow
