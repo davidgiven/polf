@@ -70,6 +70,23 @@ shift .macro insn, n
     space:      .byte ?
     push:       .byte ?
 
+kbdata_start:
+    space_row: .byte ?
+    space_col: .byte ?
+    w_row:     .byte ?
+    w_col:     .byte ?
+    a_row:     .byte ?
+    a_col:     .byte ?
+    s_row:     .byte ?
+    s_col:     .byte ?
+    d_row:     .byte ?
+    d_col:     .byte ?
+    dot_row:   .byte ?
+    dot_col:   .byte ?
+    comma_row: .byte ?
+    comma_col: .byte ?
+kbdata_size = * - kbdata_start
+
 map_table:
     .fill MAP_ROW_SIZE*MAP_ROW_SIZE, ?
 .send
@@ -209,18 +226,51 @@ test_wall:
 
 spacebar:
     .block
-        lda #8
+        ; Wait for release.
+
+    -
+        lda kbdata_b+0
         sta PIA1_PA
-    -
         lda PIA1_PB
-        and #%00000100
-        beq -                   ; wait for release
+
+        ldx kbdata_g+0
+        stx PIA1_PA
+        ora PIA1_PB
+        cmp #$ff
+        bne -
+
+        ; Check for either spacebar and exit.
 
     -
+        lda kbdata_b+0
+        sta PIA1_PA
         lda PIA1_PB
-        and #%00000100
-        bne -                   ; wait for press
+        and kbdata_b+1
+        beq install_b_keymap
 
+        lda kbdata_g+0
+        sta PIA1_PA
+        lda PIA1_PB
+        and kbdata_g+1
+        bne -
+        ; fall through
+
+    install_g_keymap:
+        ldx #kbdata_size-1
+    -
+        lda kbdata_g, x
+        sta kbdata_start, x
+        dex
+        bpl -
+        rts
+
+    install_b_keymap:
+        ldx #kbdata_size-1
+    -
+        lda kbdata_b, x
+        sta kbdata_start, x
+        dex
+        bpl -
         rts
     .bend
 
@@ -1250,10 +1300,10 @@ moveplayer:
 
         ; Process keys.
 
-        lda #3
+        lda a_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00000001
+        and a_col
         bne +
 
         lda player_h                ; A pressed
@@ -1262,8 +1312,9 @@ moveplayer:
         jsr accelerate
     +
 
+        lda d_row
         lda PIA1_PB
-        and #%00000010
+        and d_col
         bne +
 
         lda player_h                ; D pressed
@@ -1272,20 +1323,20 @@ moveplayer:
         jsr accelerate
     +
 
-        lda #4
+        lda w_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00000010
+        and w_col
         bne +
 
         lda player_h                ; W pressed
         jsr accelerate
     +
 
-        lda #2
+        lda s_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00000010
+        and s_col
         bne +
 
         lda player_h                ; S pressed
@@ -1294,10 +1345,10 @@ moveplayer:
         jsr accelerate
     +
         
-        lda #7
+        lda comma_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00001000
+        and comma_col
         bne +
 
         sec                         ; comma pressed
@@ -1306,10 +1357,10 @@ moveplayer:
         sta player_vh
     +
 
-        lda #6
+        lda dot_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00001000
+        and dot_col
         bne +
 
         clc                         ; dot pressed
@@ -1318,10 +1369,10 @@ moveplayer:
         sta player_vh
     +
 
-        lda #8
+        lda space_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00000100
+        and space_col
         cmp space                   ; compare with old state
         beq +                       ; changed?
 
@@ -1661,32 +1712,36 @@ draw_level_banner:
 select_level:
     .block
     -
-        lda #3
+        lda a_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00000011
-        cmp #%00000011
-        bne change_level        ; A or D pressed
+        and a_col
+        beq change_level_down
 
-        lda #8
+        lda d_row
         sta PIA1_PA
         lda PIA1_PB
-        and #%00000100
+        and d_col
+        beq change_level_up
+
+        lda space_row
+        sta PIA1_PA
+        lda PIA1_PB
+        and space_col
         bne -
 
         jsr wait_for_release
         clc
         rts
 
-    change_level:
-        and #%00000010
-        beq +
-        jsr prev_level
+    change_level_up:
+        jsr next_level
         jsr wait_for_release
         sec
         rts
-    +
-        jsr next_level
+
+    change_level_down:
+        jsr prev_level
         jsr wait_for_release
         sec
         rts
@@ -2271,6 +2326,44 @@ spacebar_string_size = * - spacebar_string
 
 scale_table:
     .byte $60, $65, $74, $75, $61, $f6, $ea, $e7, $e0
+
+kbdata_b:
+     .byte 8    ; space_row
+     .byte 1<<2 ; space_col
+     .byte 4    ; w_row
+     .byte 1<<1 ; w_col
+     .byte 3    ; a_row
+     .byte 1<<0 ; a_col
+     .byte 2    ; s_row
+     .byte 1<<1 ; s_col
+     .byte 3    ; d_row
+     .byte 1<<1 ; d_col
+     .byte 6    ; dot_row
+     .byte 1<<3 ; dot_col
+     .byte 7    ; comma_row
+     .byte 1<<3 ; comma_col
+.if (* - kbdata_b) != kbdata_size
+    .error Bad keyboard data
+.endif
+
+kbdata_g:
+     .byte 9    ; space_row
+     .byte 1<<2 ; space_col
+     .byte 3    ; w_row
+     .byte 1<<0 ; w_col
+     .byte 4    ; a_row
+     .byte 1<<0 ; a_col
+     .byte 5    ; s_row
+     .byte 1<<0 ; s_col
+     .byte 4    ; d_row
+     .byte 1<<1 ; d_col
+     .byte 6    ; dot_row
+     .byte 1<<4 ; dot_col
+     .byte 7    ; comma_row
+     .byte 1<<3 ; comma_col
+.if (* - kbdata_g) != kbdata_size
+    .error Bad keyboard data
+.endif
 
 sin_table:
 cos_table = sin_table + 64
