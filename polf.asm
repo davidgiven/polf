@@ -939,36 +939,74 @@ move_object:
 
         ; Apply motion (will take effect next frame).
 
+    move_x:
+        lda object_vx
+        bmi vx_neg
+    vx_pos:
         clc
         lda object_x
-        tay
         adc object_vx
-        sta object_x
+        tay
+        clc
+        adc #COLLISION_OVERLAP / 2.0
         tax
         lda object_y
         jsr test_wall
-        beq +
-        sty object_x            ; if collision, bounce in X axis
-        sec
+        beq commit_x
+    bounce_x:
+        sec                     ; collision; bounce in X axis
         lda #0
         sbc object_vx
         sta object_vx
-    +
+        jmp move_y
 
+    vx_neg:
+        clc
+        lda object_x
+        adc object_vx
+        tay
+        sec
+        sbc #COLLISION_OVERLAP / 2.0
+        tax
+        lda object_y
+        jsr test_wall
+        bne bounce_x
+    commit_x:
+        sty object_x            ; commit change
+
+    move_y:
+        lda object_vy
+        bmi vy_neg
+    vy_pos:
         clc
         lda object_y
-        tay
         adc object_vy
-        sta object_y
+        tay
+        clc
+        adc #COLLISION_OVERLAP / 2.0
         ldx object_x
         jsr test_wall
-        beq +
-        sty object_y            ; if collision, bounce in Y axis
-        sec
+        beq commit_y
+    bounce_y:
+        sec                     ; collision; bounce in Y axis
         lda #0
         sbc object_vy
         sta object_vy
-    +
+        jmp endmove
+
+    vy_neg:
+        clc
+        lda object_y
+        adc object_vy
+        tay
+        sec
+        sbc #COLLISION_OVERLAP / 2.0
+        ldx object_x
+        jsr test_wall
+        bne bounce_y
+    commit_y:
+        sty object_y            ; commit change
+    endmove:
 
         ; Diminish the object's velocity.
 
