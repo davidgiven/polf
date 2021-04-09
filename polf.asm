@@ -901,8 +901,6 @@ move_object:
 
         lda push
         beq nopush
-        lda #0
-        sta push
 
         ; Ideally we want to pretend the player is pushing a pool cue straight
         ; out in front of them, which hits the object and moves it. However,
@@ -936,6 +934,8 @@ move_object:
         sta object_vy
 
     nopush:
+        lda #0
+        sta push
 
         ; Apply motion (will take effect next frame).
 
