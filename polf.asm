@@ -1,3 +1,8 @@
+; POLF: the game of balls and holes for the Commodore PET
+; © 2021 David Given
+; This program is distributable under the terms of the MIT license. See the
+; LICENSE file in the distribution directory for the full text.
+
     .cpu "6502"
 
 PIA1    = $e810
@@ -27,6 +32,8 @@ MAP_BITS = INT_BITS
 MAP_ROW_SIZE = 1<<MAP_BITS
 MAP_ROW_MASK = ($ff<<MAP_BITS) & $ff
 MAP_COLUMN_MASK = ~MAP_ROW_MASK
+
+COLLISION_OVERLAP = 0.5 * FACTOR
 
 SCREEN = $8000
 
@@ -1142,31 +1149,27 @@ move_hole:
         jsr sqrt16
         sta hole_d            ; real distance
 
-        ; Calculate real distance from hole to object.
+        ; Check to see if the hole is approximately overlapping the object.
 
         sec
         lda object_x
         sbc hole_x
-        bpl +
-        eor #$ff                ; approximate negation negation
-    +
-        jsr square
-        sta distance+0
+        clc
+        adc #COLLISION_OVERLAP / 2.0
+        cmp #COLLISION_OVERLAP
+        bcs exit
 
         sec
         lda object_y
         sbc hole_y
-        bpl +
-        eor #$ff
-    +
-        jsr square
         clc
-        adc distance+0
-        beq +
+        adc #COLLISION_OVERLAP / 2.0
+        cmp #COLLISION_OVERLAP
+        bcs exit
+
         lda #1
-    +
-        eor #1
         sta level_complete
+    exit:
         rts
 
         .section zp
