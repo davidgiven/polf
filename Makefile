@@ -1,4 +1,4 @@
-all: polf.prg demo/demo
+all: polf.prg
 
 polf.prg: polf.asm titlescreen.inc
 	64tass --cbm-prg -o $@ -L polf.lst $<
