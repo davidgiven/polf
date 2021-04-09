@@ -69,6 +69,9 @@ shift .macro insn, n
 
     space:      .byte ?
     push:       .byte ?
+
+map_table:
+    .fill MAP_ROW_SIZE*MAP_ROW_SIZE, ?
 .send
 
 ; --- Header ----------------------------------------------------------------
@@ -2295,8 +2298,6 @@ zbuffer:
 .align $100
 backbuffer:
     .fill 1024, ?
-map_table:
-    .fill MAP_ROW_SIZE*MAP_ROW_SIZE, ?
 
     * = 0
     .dsection zp
