@@ -39,29 +39,29 @@ g++ *.cpp -lSDL
 
 //place the example code below here:
 
-#define screenWidth 80
-#define screenHeight 50
+#define screenWidth 40
+#define screenHeight 24
 #define mapWidth 16
 #define mapHeight 16
 
 int worldMap[mapWidth][mapHeight]=
 {
-  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,1,3,0,0,0,0,3,0,0,0,0,0,0,1},
-  {1,0,1,0,0,3,0,0,0,0,0,3,0,0,0,1},
-  {1,0,1,0,0,0,2,2,2,2,2,0,0,0,0,1},
-  {1,0,1,0,0,0,2,0,0,0,2,0,0,0,0,1},
-  {1,0,1,0,0,0,2,0,0,0,2,0,0,0,0,1},
-  {1,0,1,0,0,0,2,0,0,0,2,0,0,0,0,1},
-  {1,0,1,0,0,0,2,2,0,2,2,0,0,0,0,1},
-  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
-  {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}
+    {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1},
+    {1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,1,1,0,1,1},
+    {1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,0,1,0,0,1},
+    {1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1},
+    {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
 };
 
 typedef numeric::Fixed<12,4> number_t;
@@ -73,8 +73,9 @@ number_t abs(number_t n)
 
 int main(int /*argc*/, char */*argv*/[])
 {
-  number_t posX = 8, posY = 12;  //x and y start position
-  uint8_t dir = 0;
+  number_t posX = number_t::from_base(0x9c);
+  number_t posY = number_t::from_base(0xa2);
+  uint8_t dir = 0x2e;
 
   double time = 0; //time of current frame
   double oldTime = 0; //time of previous frame
@@ -91,8 +92,8 @@ int main(int /*argc*/, char */*argv*/[])
 
   auto tsin = [&](uint8_t t) { return sincos_table[t] / 128.0; };
   auto tcos = [&](uint8_t t) { return sincos_table[t+0x40] / 128.0; };
-  auto tinvsin = [&](uint8_t t) { return inv_sincos_table[t] / 16.0; };
-  auto tinvcos = [&](uint8_t t) { return inv_sincos_table[t+0x40] / 16.0; };
+  auto tinvsin = [&](uint8_t t) { return (number_t)(inv_sincos_table[t] / 16.0); };
+  auto tinvcos = [&](uint8_t t) { return (number_t)(inv_sincos_table[t+0x40] / 16.0); };
 
   int8_t deltadistx_table[256];
   int8_t deltadisty_table[256];
@@ -115,7 +116,7 @@ int main(int /*argc*/, char */*argv*/[])
     for(int x = w-1; x >= 0; x--)
     {
       //calculate ray position and direction
-      uint8_t q = dir - 20 + x/2;
+      uint8_t q = dir - 20 + x;
       number_t rayDirX = tsin(q);
       number_t rayDirY = tcos(q);
       //which box of the map we're in
@@ -163,7 +164,7 @@ int main(int /*argc*/, char */*argv*/[])
       while (hit == 0)
       {
         //jump to next map square, OR in x-direction, OR in y-direction
-        if(sideDistX < sideDistY)
+        if(sideDistX <= sideDistY)
         {
           sideDistX += deltaDistX;
           mapX += stepX;
@@ -181,10 +182,17 @@ int main(int /*argc*/, char */*argv*/[])
 			hit = 1;
       }
       //Calculate distance projected on camera direction (Euclidean distance will give fisheye effect!)
+	  number_t sum;
 	  if (side == 0)
-          perpWallDist = ((1 - stepX)/2 - (posX - mapX)) * tinvsin(q);
+	  {
+          sum = ((1 - stepX)/2.0 - (posX - mapX));
+          perpWallDist = sum * tinvsin(q);
+	  }
 	  else
-          perpWallDist = ((1 - stepY)/2 - (posY - mapY)) * tinvcos(q);
+	  {
+          sum = ((1 - stepY)/2.0 - (posY - mapY));
+          perpWallDist = sum * tinvcos(q);
+	  }
 
       //Calculate height of line to draw on screen
       int lineHeight = (perpWallDist > 0.01) ? (int)((number_t)h / perpWallDist) : 1;
